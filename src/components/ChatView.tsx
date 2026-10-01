@@ -5,6 +5,7 @@ import { Message } from '../types';
 
 interface ChatViewProps {
   messages: Message[];
+  streamingContent: string | null;
   onSendMessage: (content: string) => void;
   isLoading: boolean;
   onStop: () => void;
@@ -14,6 +15,7 @@ interface ChatViewProps {
 
 export const ChatView: React.FC<ChatViewProps> = ({
   messages,
+  streamingContent,
   onSendMessage,
   isLoading,
   onStop,
@@ -27,7 +29,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, streamingContent]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -57,26 +59,37 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full">
+    <div className="flex-1 flex flex-col h-full min-h-0">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
-        {messages.length === 0 ? (
+        {messages.length === 0 && !streamingContent ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
-            <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent/20 to-purple/20 flex items-center justify-center mb-5 shadow-lg">
               <Bot className="w-8 h-8 text-accent" />
             </div>
-            <h2 className="text-xl font-semibold text-text-primary mb-2">
+            <h2 className="text-2xl font-bold text-text-primary mb-2">
               RU AI Studio
             </h2>
-            <p className="text-text-secondary text-sm max-w-md mb-6">
-              Локальный AI-ассистент для работы с кодом. Подключён к Ollama — работает без интернета, без VPN, бесплатно.
+            <p className="text-text-secondary text-sm max-w-md mb-2">
+              Локальный AI-ассистент для работы с кодом
             </p>
+            <div className="flex items-center gap-2 mb-6">
+              <span className="px-2 py-0.5 rounded-full bg-green/10 text-green text-xs border border-green/20">
+                🔒 Приватно
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-accent/10 text-accent text-xs border border-accent/20">
+                ⚡ Без цензуры
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-purple/10 text-purple text-xs border border-purple/20">
+                🏠 Оффлайн
+              </span>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full">
               {[
-                'Объясни этот код',
-                'Найди баги в функции',
-                'Напиши тесты для модуля',
-                'Оптимизируй запрос',
+                'Напиши REST API на Express',
+                'Объясни этот код и найди баги',
+                'Создай React компонент с хуками',
+                'Оптимизируй SQL запрос',
               ].map((suggestion) => (
                 <button
                   key={suggestion}
@@ -101,7 +114,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 }`}
               >
                 {msg.role === 'assistant' && (
-                  <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent/20 to-accent/5 flex items-center justify-center shrink-0 mt-1">
                     <Bot className="w-4 h-4 text-accent" />
                   </div>
                 )}
@@ -121,7 +134,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   )}
                   <button
                     onClick={() => copyToClipboard(msg.content, msg.id)}
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded bg-bg-tertiary hover:bg-bg-hover transition-all"
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md bg-bg-tertiary hover:bg-bg-hover transition-all"
                     title="Копировать"
                   >
                     {copiedId === msg.id ? (
@@ -132,15 +145,32 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </button>
                 </div>
                 {msg.role === 'user' && (
-                  <div className="w-8 h-8 rounded-lg bg-purple/10 flex items-center justify-center shrink-0 mt-1">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple/20 to-purple/5 flex items-center justify-center shrink-0 mt-1">
                     <User className="w-4 h-4 text-purple" />
                   </div>
                 )}
               </div>
             ))}
-            {isLoading && (
+
+            {/* Streaming message */}
+            {streamingContent && (
               <div className="flex gap-3 animate-fade-in">
-                <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent/20 to-accent/5 flex items-center justify-center shrink-0 mt-1">
+                  <Bot className="w-4 h-4 text-accent" />
+                </div>
+                <div className="bg-bg-secondary border border-border rounded-2xl rounded-tl-sm px-4 py-3 max-w-[80%]">
+                  <div className="markdown-content text-sm">
+                    <ReactMarkdown>{streamingContent}</ReactMarkdown>
+                  </div>
+                  <span className="inline-block w-1.5 h-4 bg-accent animate-pulse ml-0.5 align-middle" />
+                </div>
+              </div>
+            )}
+
+            {/* Loading indicator (before first chunk) */}
+            {isLoading && !streamingContent && (
+              <div className="flex gap-3 animate-fade-in">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent/20 to-accent/5 flex items-center justify-center shrink-0">
                   <Bot className="w-4 h-4 text-accent" />
                 </div>
                 <div className="bg-bg-secondary border border-border rounded-2xl rounded-tl-sm px-4 py-3">
@@ -158,27 +188,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </div>
 
       {/* Input */}
-      <div className="border-t border-border p-4">
+      <div className="border-t border-border p-4 bg-bg-primary/50 backdrop-blur-sm">
         <div className="max-w-4xl mx-auto">
           {attachedFileIds.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
               {attachedFileIds.map((fileId: string) => (
                 <span
                   key={fileId}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-bg-tertiary border border-border text-xs text-text-secondary"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent/10 border border-accent/20 text-xs text-accent"
                 >
-                  📄 {fileId}
+                  📄 {fileId.length > 20 ? fileId.slice(0, 20) + '...' : fileId}
                 </span>
               ))}
             </div>
           )}
           <form onSubmit={handleSubmit} className="relative">
-            <div className="flex items-end gap-2 bg-bg-secondary border border-border rounded-xl p-2 focus-within:border-accent/50 transition-colors">
+            <div className="flex items-end gap-2 bg-bg-secondary border border-border rounded-xl p-2 focus-within:border-accent/50 transition-colors shadow-lg">
               <button
                 type="button"
                 onClick={onAttachFile}
                 className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
-                title="Прикрепить файл"
+                title="Прикрепить файлы из репозитория"
               >
                 <Paperclip className="w-4 h-4" />
               </button>
@@ -187,7 +217,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Спросите что-нибудь о коде... (Shift+Enter для новой строки)"
+                placeholder="Спросите что-нибудь... (Shift+Enter — новая строка)"
                 className="flex-1 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none min-h-[36px] max-h-[200px] py-1.5"
                 rows={1}
               />
@@ -196,6 +226,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   type="button"
                   onClick={onStop}
                   className="p-2 rounded-lg bg-red/10 text-red hover:bg-red/20 transition-colors shrink-0"
+                  title="Остановить"
                 >
                   <Square className="w-4 h-4" />
                 </button>
@@ -204,14 +235,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   type="submit"
                   disabled={!input.trim()}
                   className="p-2 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+                  title="Отправить"
                 >
                   <Send className="w-4 h-4" />
                 </button>
               )}
             </div>
           </form>
-          <p className="text-xs text-text-muted mt-2 text-center">
-            Работает на Ollama • Полностью локально • Без VPN
+          <p className="text-[10px] text-text-muted mt-2 text-center tracking-wide">
+            🔒 Полностью локально • Данные не покидают ваш компьютер • Ollama
           </p>
         </div>
       </div>

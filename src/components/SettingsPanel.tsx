@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle, XCircle, Terminal, Copy, Check, Zap } from 'lucide-react';
-import { AppSettings, ProviderType } from '../types';
-import { PROVIDERS, MODELS, checkOllamaConnection, getOllamaModels } from '../config';
+import { X, CheckCircle, XCircle, Copy, Check, Zap, Terminal, Shield } from 'lucide-react';
+import { AppSettings } from '../types';
+import { MODELS, checkOllamaConnection, getOllamaModels } from '../config';
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -17,7 +17,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'connection' | 'models' | 'advanced' | 'setup'>('connection');
+  const [activeTab, setActiveTab] = useState<'connection' | 'setup' | 'params'>('connection');
 
   useEffect(() => {
     checkConnection();
@@ -30,6 +30,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     if (connected) {
       const models = await getOllamaModels(settings.ollamaUrl);
       setAvailableModels(models);
+    } else {
+      setAvailableModels([]);
     }
   };
 
@@ -40,13 +42,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in">
-      <div className="bg-bg-secondary border border-border rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+      <div className="bg-bg-secondary border border-border rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl mx-4">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border">
-          <div>
-            <h2 className="text-lg font-semibold text-text-primary">Настройки</h2>
-            <p className="text-xs text-text-secondary mt-0.5">Подключение к нейросети и параметры модели</p>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center">
+              <Shield className="w-5 h-5 text-accent" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-text-primary">Настройки</h2>
+              <p className="text-xs text-text-secondary">Подключение • Приватность • Параметры</p>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -56,13 +63,24 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </button>
         </div>
 
+        {/* Privacy Banner */}
+        <div className="mx-5 mt-4 p-3 rounded-xl bg-green/5 border border-green/20 flex items-start gap-3">
+          <Shield className="w-4 h-4 text-green shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs text-green font-medium">Полная приватность</p>
+            <p className="text-xs text-text-secondary mt-0.5">
+              Все данные хранятся только на вашем компьютере. Ничего не отправляется в интернет.
+              Ollama работает полностью оффлайн.
+            </p>
+          </div>
+        </div>
+
         {/* Tabs */}
-        <div className="flex border-b border-border px-5">
+        <div className="flex border-b border-border px-5 mt-4">
           {[
             { id: 'connection', label: 'Подключение' },
-            { id: 'models', label: 'Модели' },
-            { id: 'setup', label: 'Быстрый старт' },
-            { id: 'advanced', label: 'Дополнительно' },
+            { id: 'setup', label: 'Установка' },
+            { id: 'params', label: 'Параметры' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -82,250 +100,157 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <div className="flex-1 overflow-y-auto p-5">
           {activeTab === 'connection' && (
             <div className="space-y-5">
-              {/* Provider Selection */}
-              <div>
-                <label className="text-sm font-medium text-text-primary block mb-3">
-                  Провайдер нейросети
-                </label>
-                <div className="grid grid-cols-1 gap-2">
-                  {PROVIDERS.map((provider) => (
-                    <button
-                      key={provider.type}
-                      onClick={() => onUpdate({ provider: provider.type })}
-                      className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all ${
-                        settings.provider === provider.type
-                          ? 'border-accent bg-accent/5'
-                          : 'border-border hover:border-text-muted bg-bg-tertiary'
-                      }`}
-                    >
-                      <div className="mt-0.5">
-                        {settings.provider === provider.type ? (
-                          <CheckCircle className="w-5 h-5 text-accent" />
-                        ) : (
-                          <div className="w-5 h-5 rounded-full border-2 border-border" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium text-text-primary">
-                          {provider.name}
-                        </div>
-                        <div className="text-xs text-text-secondary mt-0.5">
-                          {provider.description}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
+              {/* Connection Status */}
+              <div className="bg-bg-tertiary border border-border rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium text-text-primary">Ollama сервер</span>
+                  <div className="flex items-center gap-2">
+                    {ollamaStatus === 'checking' && (
+                      <span className="text-xs text-text-muted flex items-center gap-1.5">
+                        <div className="w-2 h-2 border border-accent border-t-transparent rounded-full animate-spin" />
+                        Проверка...
+                      </span>
+                    )}
+                    {ollamaStatus === 'connected' && (
+                      <span className="text-xs text-green flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        Подключено
+                      </span>
+                    )}
+                    {ollamaStatus === 'disconnected' && (
+                      <span className="text-xs text-red flex items-center gap-1.5">
+                        <XCircle className="w-3.5 h-3.5" />
+                        Не подключено
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={settings.ollamaUrl}
+                    onChange={(e) => onUpdate({ ollamaUrl: e.target.value })}
+                    className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary code-font outline-none focus:border-accent/50 transition-colors"
+                    placeholder="http://localhost:11434"
+                  />
+                  <button
+                    onClick={checkConnection}
+                    className="px-4 py-2 bg-accent/10 text-accent rounded-lg text-sm font-medium hover:bg-accent/20 transition-colors whitespace-nowrap"
+                  >
+                    Перепроверить
+                  </button>
                 </div>
               </div>
 
-              {/* Connection URL */}
-              {settings.provider === 'ollama' && (
-                <div>
-                  <label className="text-sm font-medium text-text-primary block mb-2">
-                    URL Ollama сервера
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={settings.ollamaUrl}
-                      onChange={(e) => onUpdate({ ollamaUrl: e.target.value })}
-                      className="flex-1 bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary code-font outline-none focus:border-accent/50 transition-colors"
-                      placeholder="http://localhost:11434"
-                    />
-                    <button
-                      onClick={checkConnection}
-                      className="px-4 py-2 bg-accent/10 text-accent rounded-lg text-sm font-medium hover:bg-accent/20 transition-colors"
-                    >
-                      Проверить
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2 mt-2">
-                    {ollamaStatus === 'checking' && (
-                      <>
-                        <div className="w-3 h-3 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                        <span className="text-xs text-text-secondary">Проверка...</span>
-                      </>
-                    )}
-                    {ollamaStatus === 'connected' && (
-                      <>
-                        <CheckCircle className="w-4 h-4 text-green" />
-                        <span className="text-xs text-green">
-                          Подключено! Доступно моделей: {availableModels.length}
-                        </span>
-                      </>
-                    )}
-                    {ollamaStatus === 'disconnected' && (
-                      <>
-                        <XCircle className="w-4 h-4 text-red" />
-                        <span className="text-xs text-red">
-                          Не удалось подключиться. Убедитесь, что Ollama запущена.
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {settings.provider === 'gigachat' && (
-                <div>
-                  <label className="text-sm font-medium text-text-primary block mb-2">
-                    GigaChat Authorization Key
-                  </label>
-                  <input
-                    type="password"
-                    value={settings.gigachatToken}
-                    onChange={(e) => onUpdate({ gigachatToken: e.target.value })}
-                    className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary code-font outline-none focus:border-accent/50 transition-colors"
-                    placeholder="Вставьте ваш токен GigaChat"
-                  />
-                  <p className="text-xs text-text-muted mt-1.5">
-                    Получите бесплатно на developers.sber.ru
-                  </p>
-                </div>
-              )}
-
-              {settings.provider === 'yandexgpt' && (
-                <div>
-                  <label className="text-sm font-medium text-text-primary block mb-2">
-                    Yandex Cloud IAM Token
-                  </label>
-                  <input
-                    type="password"
-                    value={settings.yandexToken}
-                    onChange={(e) => onUpdate({ yandexToken: e.target.value })}
-                    className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary code-font outline-none focus:border-accent/50 transition-colors"
-                    placeholder="Вставьте IAM-токен"
-                  />
-                  <p className="text-xs text-text-muted mt-1.5">
-                    Получите на console.cloud.yandex.ru
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'models' && (
-            <div className="space-y-5">
+              {/* Model Selection */}
               <div>
                 <label className="text-sm font-medium text-text-primary block mb-2">
                   Модель
                 </label>
-                {settings.provider === 'ollama' && availableModels.length > 0 ? (
-                  <select
-                    value={settings.selectedModel}
-                    onChange={(e) => onUpdate({ selectedModel: e.target.value })}
-                    className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-accent/50 transition-colors"
-                  >
-                    <optgroup label="Установленные модели">
+                <select
+                  value={settings.selectedModel}
+                  onChange={(e) => onUpdate({ selectedModel: e.target.value })}
+                  className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary outline-none focus:border-accent/50 transition-colors"
+                >
+                  {availableModels.length > 0 && (
+                    <optgroup label="Установленные">
                       {availableModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
+                        <option key={model} value={model}>{model}</option>
                       ))}
                     </optgroup>
-                    <optgroup label="Рекомендуемые (установите через Ollama)">
-                      {MODELS.ollama
-                        .filter((m) => !availableModels.includes(m))
-                        .map((model) => (
-                          <option key={model} value={model}>
-                            {model} ⬇️
-                          </option>
-                        ))}
-                    </optgroup>
-                  </select>
-                ) : (
-                  <select
-                    value={settings.selectedModel}
-                    onChange={(e) => onUpdate({ selectedModel: e.target.value })}
-                    className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-accent/50 transition-colors"
-                  >
-                    {(MODELS[settings.provider] || []).map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
+                  )}
+                  <optgroup label="Рекомендуемые (установите через Ollama)">
+                    {MODELS.ollama
+                      .filter((m) => !availableModels.includes(m))
+                      .map((model) => (
+                        <option key={model} value={model}>{model}</option>
+                      ))}
+                  </optgroup>
+                </select>
+                {availableModels.length === 0 && (
+                  <p className="text-xs text-text-muted mt-2">
+                    Модели не найдены. Перейдите во вкладку «Установка» для инструкций.
+                  </p>
                 )}
               </div>
 
-              {settings.provider === 'ollama' && (
-                <div className="bg-bg-tertiary border border-border rounded-xl p-4">
-                  <h4 className="text-sm font-medium text-text-primary mb-2">
-                    🚀 Рекомендуемые модели для кода
-                  </h4>
-                  <div className="space-y-2">
-                    {[
-                      { name: 'qwen2.5-coder:7b', desc: 'Лучшая для кода, 4.7GB' },
-                      { name: 'deepseek-coder-v2:16b', desc: 'Мощная, 8.9GB' },
-                      { name: 'codellama:7b', desc: 'Классика от Meta, 3.8GB' },
-                      { name: 'starcoder2:7b', desc: 'От HuggingFace, 4.0GB' },
-                    ].map((model) => (
-                      <div
-                        key={model.name}
-                        className="flex items-center justify-between p-2 rounded-lg hover:bg-bg-hover transition-colors"
-                      >
-                        <div>
-                          <span className="text-sm text-text-primary code-font">{model.name}</span>
-                          <p className="text-xs text-text-muted">{model.desc}</p>
-                        </div>
-                        <button
-                          onClick={() => copyCommand(`ollama pull ${model.name}`)}
-                          className="p-1.5 rounded-md hover:bg-bg-secondary text-text-muted hover:text-text-primary transition-colors"
-                        >
-                          {copiedCmd === `ollama pull ${model.name}` ? (
-                            <Check className="w-3.5 h-3.5 text-green" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
+              {/* Quick Install Commands */}
+              <div className="bg-bg-tertiary border border-border rounded-xl p-4">
+                <h4 className="text-sm font-medium text-text-primary mb-3 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-accent" />
+                  Быстрая установка моделей
+                </h4>
+                <div className="space-y-2">
+                  {[
+                    { name: 'qwen2.5-coder:7b', desc: 'Лучшая для кода • 4.7 GB', cmd: 'ollama pull qwen2.5-coder:7b' },
+                    { name: 'deepseek-coder-v2:16b', desc: 'Мощная • 8.9 GB', cmd: 'ollama pull deepseek-coder-v2:16b' },
+                    { name: 'qwen2.5-coder:1.5b', desc: 'Лёгкая • 1.0 GB', cmd: 'ollama pull qwen2.5-coder:1.5b' },
+                  ].map((model) => (
+                    <div
+                      key={model.name}
+                      className="flex items-center justify-between p-2.5 rounded-lg bg-bg-primary/50 hover:bg-bg-primary transition-colors"
+                    >
+                      <div>
+                        <span className="text-sm text-text-primary code-font">{model.name}</span>
+                        <p className="text-xs text-text-muted">{model.desc}</p>
                       </div>
-                    ))}
-                  </div>
+                      <button
+                        onClick={() => copyCommand(model.cmd)}
+                        className="p-2 rounded-md hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
+                      >
+                        {copiedCmd === model.cmd ? (
+                          <Check className="w-4 h-4 text-green" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              )}
+              </div>
             </div>
           )}
 
           {activeTab === 'setup' && (
-            <div className="space-y-5">
-              <div className="bg-gradient-to-br from-accent/10 to-purple/10 border border-accent/20 rounded-xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <Zap className="w-5 h-5 text-accent" />
-                  <h3 className="text-sm font-semibold text-text-primary">Быстрый старт (2 минуты)</h3>
-                </div>
-                <p className="text-sm text-text-secondary mb-4">
-                  Выполните эти команды для полной настройки. Ollama — единственный провайдер, который работает полностью оффлайн без токенов.
-                </p>
+            <div className="space-y-4">
+              <div className="bg-gradient-to-br from-accent/5 to-purple/5 border border-accent/20 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-accent" />
+                  Установка Ollama (2 минуты)
+                </h3>
 
                 <div className="space-y-3">
                   {[
                     {
-                      step: '1. Установите Ollama',
+                      step: '1',
+                      title: 'Установите Ollama',
                       cmd: 'curl -fsSL https://ollama.com/install.sh | sh',
-                      note: 'Или скачайте с ollama.com/download для Windows/macOS',
+                      note: 'Linux. Для Windows/macOS — скачайте с ollama.com/download',
                     },
                     {
-                      step: '2. Загрузите модель для кода',
+                      step: '2',
+                      title: 'Загрузите модель',
                       cmd: 'ollama pull qwen2.5-coder:7b',
                       note: 'Лучшая бесплатная модель для программирования',
                     },
                     {
-                      step: '3. Запустите сервер',
+                      step: '3',
+                      title: 'Запустите сервер',
                       cmd: 'ollama serve',
-                      note: 'Обычно запускается автоматически',
-                    },
-                    {
-                      step: '4. Готово!',
-                      cmd: 'curl http://localhost:11434/api/tags',
-                      note: 'Проверьте что сервер отвечает',
+                      note: 'Обычно запускается автоматически при установке',
                     },
                   ].map((item) => (
-                    <div key={item.step} className="bg-bg-primary/50 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-accent">{item.step}</span>
+                    <div key={item.step} className="bg-bg-primary/60 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-accent/20 text-accent text-xs font-bold flex items-center justify-center">
+                            {item.step}
+                          </span>
+                          <span className="text-sm font-medium text-text-primary">{item.title}</span>
+                        </div>
                         <button
                           onClick={() => copyCommand(item.cmd)}
-                          className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
+                          className="p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
                         >
                           {copiedCmd === item.cmd ? (
                             <Check className="w-3.5 h-3.5 text-green" />
@@ -334,48 +259,55 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                           )}
                         </button>
                       </div>
-                      <code className="text-xs text-green code-font block mb-1">{item.cmd}</code>
+                      <code className="text-xs text-green code-font block bg-bg-primary/50 rounded px-2 py-1.5 mb-1.5">
+                        {item.cmd}
+                      </code>
                       <p className="text-xs text-text-muted">{item.note}</p>
                     </div>
                   ))}
                 </div>
+
+                <div className="mt-4 p-3 bg-bg-primary/40 rounded-lg border border-border">
+                  <p className="text-xs text-text-muted mb-1.5">Всё одной командой:</p>
+                  <div className="flex items-center justify-between">
+                    <code className="text-xs text-green code-font">
+                      curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen2.5-coder:7b
+                    </code>
+                    <button
+                      onClick={() => copyCommand('curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen2.5-coder:7b')}
+                      className="p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors shrink-0 ml-2"
+                    >
+                      {copiedCmd === 'curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen2.5-coder:7b' ? (
+                        <Check className="w-3.5 h-3.5 text-green" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="bg-bg-tertiary border border-border rounded-xl p-4">
-                <h4 className="text-sm font-medium text-text-primary mb-2">
-                  <Terminal className="w-4 h-4 inline mr-1.5" />
-                  Все команды одной строкой:
-                </h4>
-                <div className="bg-bg-primary rounded-lg p-3 relative">
-                  <code className="text-xs text-green code-font block pr-8">
-                    curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen2.5-coder:7b && ollama serve
-                  </code>
-                  <button
-                    onClick={() =>
-                      copyCommand(
-                        'curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen2.5-coder:7b && ollama serve'
-                      )
-                    }
-                    className="absolute top-2 right-2 p-1.5 rounded-md hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
-                  >
-                    {copiedCmd ===
-                    'curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen2.5-coder:7b && ollama serve' ? (
-                      <Check className="w-3.5 h-3.5 text-green" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </div>
+                <h4 className="text-sm font-medium text-text-primary mb-2">Требования</h4>
+                <ul className="text-xs text-text-secondary space-y-1.5">
+                  <li>• <strong>RAM:</strong> 8 GB минимум (16 GB рекомендуется)</li>
+                  <li>• <strong>Диск:</strong> 5-10 GB для модели</li>
+                  <li>• <strong>GPU:</strong> Опционально, но сильно ускоряет (NVIDIA 4GB+ VRAM)</li>
+                  <li>• <strong>Интернет:</strong> Не нужен после установки модели</li>
+                </ul>
               </div>
             </div>
           )}
 
-          {activeTab === 'advanced' && (
+          {activeTab === 'params' && (
             <div className="space-y-5">
               <div>
-                <label className="text-sm font-medium text-text-primary block mb-2">
-                  Температура (креативность): {settings.temperature}
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-text-primary">
+                    Температура
+                  </label>
+                  <span className="text-sm text-accent code-font">{settings.temperature}</span>
+                </div>
                 <input
                   type="range"
                   min="0"
@@ -386,8 +318,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   className="w-full accent-accent"
                 />
                 <div className="flex justify-between text-xs text-text-muted mt-1">
-                  <span>Точно (0)</span>
-                  <span>Креативно (2)</span>
+                  <span>Точные ответы</span>
+                  <span>Креативные ответы</span>
                 </div>
               </div>
 
@@ -398,20 +330,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 <textarea
                   value={settings.systemPrompt}
                   onChange={(e) => onUpdate({ systemPrompt: e.target.value })}
-                  className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-accent/50 transition-colors min-h-[100px] resize-y"
-                  placeholder="Опишите роль AI-ассистента..."
+                  className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary outline-none focus:border-accent/50 transition-colors min-h-[150px] resize-y code-font leading-relaxed"
                 />
+                <p className="text-xs text-text-muted mt-1.5">
+                  Этот промпт задаёт поведение AI. Текущий — без ограничений и цензуры.
+                </p>
               </div>
 
               <div>
                 <label className="text-sm font-medium text-text-primary block mb-2">
-                  Макс. токенов ответа
+                  Макс. длина ответа (токены)
                 </label>
                 <input
                   type="number"
                   value={settings.maxTokens}
-                  onChange={(e) => onUpdate({ maxTokens: parseInt(e.target.value) || 4096 })}
-                  className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary code-font outline-none focus:border-accent/50 transition-colors"
+                  onChange={(e) => onUpdate({ maxTokens: parseInt(e.target.value) || 8192 })}
+                  className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary code-font outline-none focus:border-accent/50 transition-colors"
                 />
               </div>
             </div>

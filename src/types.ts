@@ -12,20 +12,6 @@ export interface ChatSession {
   messages: Message[];
   createdAt: Date;
   model: string;
-  provider: ProviderType;
-}
-
-export type ProviderType = 'ollama' | 'gigachat' | 'yandexgpt';
-
-export interface ProviderConfig {
-  type: ProviderType;
-  name: string;
-  baseUrl: string;
-  apiKey?: string;
-  model: string;
-  available: boolean;
-  description: string;
-  setupInstructions: string;
 }
 
 export interface FileNode {
@@ -39,7 +25,7 @@ export interface FileNode {
 }
 
 export interface AppSettings {
-  provider: ProviderType;
+  provider: 'ollama';
   ollamaUrl: string;
   gigachatToken: string;
   yandexToken: string;

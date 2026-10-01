@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Menu, X } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { Message, ChatSession, FileNode, AppSettings } from './types';
-import { DEFAULT_SETTINGS, sendOllamaMessage, sendGigaChatMessage, checkOllamaConnection } from './config';
+import { DEFAULT_SETTINGS, sendOllamaMessage, checkOllamaConnection } from './config';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -15,7 +15,7 @@ function loadSettings(): AppSettings {
   try {
     const saved = localStorage.getItem('ru-ai-studio-settings');
     if (saved) return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
-  } catch {}
+  } catch { /* empty */ }
   return DEFAULT_SETTINGS;
 }
 
@@ -30,8 +30,19 @@ function loadSessions(): ChatSession[] {
         messages: s.messages.map((m: Message) => ({ ...m, timestamp: new Date(m.timestamp) })),
       }));
     }
-  } catch {}
+  } catch { /* empty */ }
   return [];
+}
+
+function findFileById(id: string, files: FileNode[]): FileNode | null {
+  for (const file of files) {
+    if (file.id === id) return file;
+    if (file.children) {
+      const found = findFileById(id, file.children);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 export default function App() {
@@ -45,32 +56,26 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [allFiles, setAllFiles] = useState<FileNode[]>([]);
   const [attachedFileIds, setAttachedFileIds] = useState<string[]>([]);
+  const [streamingContent, setStreamingContent] = useState('');
   const abortRef = useRef<AbortController | null>(null);
 
-  // Save settings to localStorage
   useEffect(() => {
     localStorage.setItem('ru-ai-studio-settings', JSON.stringify(settings));
   }, [settings]);
 
-  // Save sessions to localStorage
   useEffect(() => {
     localStorage.setItem('ru-ai-studio-sessions', JSON.stringify(sessions));
   }, [sessions]);
 
-  // Check Ollama connection on mount and periodically
   useEffect(() => {
     const check = async () => {
-      if (settings.provider === 'ollama') {
-        const connected = await checkOllamaConnection(settings.ollamaUrl);
-        setOllamaConnected(connected);
-      } else {
-        setOllamaConnected(true); // For non-Ollama providers, assume connected
-      }
+      const connected = await checkOllamaConnection(settings.ollamaUrl);
+      setOllamaConnected(connected);
     };
     check();
-    const interval = setInterval(check, 10000);
+    const interval = setInterval(check, 8000);
     return () => clearInterval(interval);
-  }, [settings.provider, settings.ollamaUrl]);
+  }, [settings.ollamaUrl]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
 
@@ -85,24 +90,35 @@ export default function App() {
       messages: [],
       createdAt: new Date(),
       model: settings.selectedModel,
-      provider: settings.provider,
     };
     setSessions((prev) => [newSession, ...prev]);
     setActiveSessionId(newSession.id);
-  }, [settings.selectedModel, settings.provider]);
+    setStreamingContent('');
+  }, [settings.selectedModel]);
 
   const deleteSession = useCallback((id: string) => {
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (activeSessionId === id) {
       setActiveSessionId(null);
+      setStreamingContent('');
     }
   }, [activeSessionId]);
 
   const handleSendMessage = useCallback(
     async (content: string) => {
-      if (!activeSessionId) {
-        createNewSession();
-        return;
+      let sessionId = activeSessionId;
+      
+      if (!sessionId) {
+        const newSession: ChatSession = {
+          id: generateId(),
+          title: content.slice(0, 40) + (content.length > 40 ? '...' : ''),
+          messages: [],
+          createdAt: new Date(),
+          model: settings.selectedModel,
+        };
+        setSessions((prev) => [newSession, ...prev]);
+        setActiveSessionId(newSession.id);
+        sessionId = newSession.id;
       }
 
       const userMessage: Message = {
@@ -117,24 +133,24 @@ export default function App() {
       if (attachedFileIds.length > 0) {
         const attachedFiles = attachedFileIds
           .map((id) => findFileById(id, allFiles))
-          .filter(Boolean);
+          .filter(Boolean) as FileNode[];
 
         if (attachedFiles.length > 0) {
-          fullContent = content + '\n\n---\nПрикреплённые файлы:\n';
+          fullContent = content + '\n\n---\n📎 Прикреплённые файлы:\n';
           attachedFiles.forEach((file) => {
-            if (file) {
-              fullContent += `\n### ${file.name}\n\`\`\`${file.language || ''}\n${file.content}\n\`\`\`\n`;
-            }
+            fullContent += `\n### ${file.name}\n\`\`\`${file.language || ''}\n${file.content}\n\`\`\`\n`;
           });
         }
       }
 
-      // Add user message
+      // Add user message to session
       setSessions((prev) =>
         prev.map((s) => {
-          if (s.id === activeSessionId) {
+          if (s.id === sessionId) {
             const updatedMessages = [...s.messages, userMessage];
-            const title = s.messages.length === 0 ? content.slice(0, 40) + (content.length > 40 ? '...' : '') : s.title;
+            const title = s.messages.length === 0
+              ? content.slice(0, 40) + (content.length > 40 ? '...' : '')
+              : s.title;
             return { ...s, messages: updatedMessages, title };
           }
           return s;
@@ -142,10 +158,14 @@ export default function App() {
       );
 
       setIsLoading(true);
+      setStreamingContent('');
       setAttachedFileIds([]);
 
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       try {
-        const currentSession = sessions.find((s) => s.id === activeSessionId);
+        const currentSession = sessions.find((s) => s.id === sessionId);
         const history = currentSession?.messages || [];
 
         const apiMessages = [
@@ -154,65 +174,85 @@ export default function App() {
           { role: 'user', content: fullContent },
         ];
 
-        let response = '';
+        let fullResponse = '';
 
-        if (settings.provider === 'ollama') {
-          response = await sendOllamaMessage(
-            settings.ollamaUrl,
-            settings.selectedModel,
-            apiMessages,
-            settings.temperature
-          );
-        } else if (settings.provider === 'gigachat') {
-          response = await sendGigaChatMessage(
-            settings.gigachatToken,
-            settings.selectedModel,
-            apiMessages
-          );
-        }
+        await sendOllamaMessage(
+          settings.ollamaUrl,
+          settings.selectedModel,
+          apiMessages,
+          settings.temperature,
+          (chunk: string) => {
+            fullResponse += chunk;
+            setStreamingContent(fullResponse);
+          },
+          controller.signal
+        );
 
         const assistantMessage: Message = {
           id: generateId(),
           role: 'assistant',
-          content: response,
+          content: fullResponse,
           timestamp: new Date(),
           model: settings.selectedModel,
         };
 
         setSessions((prev) =>
           prev.map((s) => {
-            if (s.id === activeSessionId) {
+            if (s.id === sessionId) {
               return { ...s, messages: [...s.messages, assistantMessage] };
             }
             return s;
           })
         );
-      } catch (error: any) {
-        const errorMessage: Message = {
-          id: generateId(),
-          role: 'assistant',
-          content: `⚠️ **Ошибка подключения:**\n\n${error.message}\n\n---\n\n**Решение:**\n1. Убедитесь, что Ollama запущена: \`ollama serve\`\n2. Проверьте URL в настройках: ${settings.ollamaUrl}\n3. Установите модель: \`ollama pull qwen2.5-coder:7b\`\n\nОткройте настройки (⚙️) для помощи с подключением.`,
-          timestamp: new Date(),
-        };
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          // User cancelled
+          if (streamingContent) {
+            const partialMessage: Message = {
+              id: generateId(),
+              role: 'assistant',
+              content: streamingContent + '\n\n*[Остановлено пользователем]*',
+              timestamp: new Date(),
+              model: settings.selectedModel,
+            };
+            setSessions((prev) =>
+              prev.map((s) => {
+                if (s.id === sessionId) {
+                  return { ...s, messages: [...s.messages, partialMessage] };
+                }
+                return s;
+              })
+            );
+          }
+        } else {
+          const err = error instanceof Error ? error : new Error('Неизвестная ошибка');
+          const errorMessage: Message = {
+            id: generateId(),
+            role: 'assistant',
+            content: `⚠️ **Ошибка подключения к Ollama:**\n\n\`${err.message}\`\n\n---\n\n**Решение:**\n1. Убедитесь что Ollama запущена: \`ollama serve\`\n2. Проверьте URL: ${settings.ollamaUrl}\n3. Установите модель: \`ollama pull qwen2.5-coder:7b\`\n4. Откройте ⚙️ Настройки для помощи`,
+            timestamp: new Date(),
+          };
 
-        setSessions((prev) =>
-          prev.map((s) => {
-            if (s.id === activeSessionId) {
-              return { ...s, messages: [...s.messages, errorMessage] };
-            }
-            return s;
-          })
-        );
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id === sessionId) {
+                return { ...s, messages: [...s.messages, errorMessage] };
+              }
+              return s;
+            })
+          );
+        }
       } finally {
         setIsLoading(false);
+        setStreamingContent('');
+        abortRef.current = null;
       }
     },
-    [activeSessionId, sessions, settings, allFiles, attachedFileIds, createNewSession]
+    [activeSessionId, sessions, settings, allFiles, attachedFileIds, streamingContent]
   );
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
-    setIsLoading(false);
   }, []);
 
   const handleAddFile = useCallback((file: FileNode) => {
@@ -225,13 +265,10 @@ export default function App() {
   }, []);
 
   const handleToggleAttach = useCallback((id: string, file?: FileNode) => {
-    // If file is provided and not in allFiles yet (e.g., from demo repo), add it
     if (file && file.content) {
       setAllFiles((prev) => {
         const exists = findFileById(id, prev);
-        if (!exists) {
-          return [...prev, file];
-        }
+        if (!exists) return [...prev, file];
         return prev;
       });
     }
@@ -242,20 +279,15 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-bg-primary">
-      {/* Mobile sidebar toggle */}
-      <button
-        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-        className="fixed top-3 left-3 z-40 lg:hidden p-2 rounded-lg bg-bg-secondary border border-border text-text-secondary hover:text-text-primary transition-colors"
-      >
-        {sidebarCollapsed ? <Menu className="w-5 h-5" /> : <X className="w-5 h-5" />}
-      </button>
-
-      {/* Sidebar */}
-      <div className={`hidden lg:block`}>
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block">
         <Sidebar
           sessions={sessions}
           activeSession={activeSessionId}
-          onSelectSession={setActiveSessionId}
+          onSelectSession={(id) => {
+            setActiveSessionId(id);
+            setStreamingContent('');
+          }}
           onNewSession={createNewSession}
           onDeleteSession={deleteSession}
           onOpenSettings={() => setShowSettings(true)}
@@ -266,15 +298,16 @@ export default function App() {
         />
       </div>
 
-      {/* Mobile Sidebar */}
+      {/* Mobile Sidebar Overlay */}
       <div className={`lg:hidden fixed inset-0 z-30 ${sidebarCollapsed ? 'hidden' : ''}`}>
         <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarCollapsed(true)} />
-        <div className="relative w-64 h-full">
+        <div className="relative w-72 h-full">
           <Sidebar
             sessions={sessions}
             activeSession={activeSessionId}
             onSelectSession={(id) => {
               setActiveSessionId(id);
+              setStreamingContent('');
               setSidebarCollapsed(true);
             }}
             onNewSession={() => {
@@ -300,21 +333,26 @@ export default function App() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
-        <div className="h-12 border-b border-border flex items-center px-4 gap-3 bg-bg-secondary/50">
-          <div className="lg:hidden w-8" />
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${ollamaConnected ? 'bg-green' : 'bg-red'}`} />
-            <span className="text-sm text-text-secondary">
+        <div className="h-12 border-b border-border flex items-center px-4 gap-3 bg-bg-secondary/50 backdrop-blur-sm">
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className="lg:hidden p-1.5 rounded-lg hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2.5">
+            <div className={`w-2 h-2 rounded-full ${ollamaConnected ? 'bg-green' : 'bg-red'} ${ollamaConnected ? 'animate-pulse-dot' : ''}`} />
+            <span className="text-sm text-text-secondary truncate">
               {activeSession ? activeSession.title : 'RU AI Studio'}
             </span>
           </div>
           <div className="flex-1" />
-          <div className="hidden sm:flex items-center gap-2 text-xs text-text-muted">
-            <span className="px-2 py-1 rounded bg-bg-tertiary border border-border code-font">
+          <div className="hidden sm:flex items-center gap-2">
+            <span className="px-2 py-1 rounded-md bg-bg-tertiary border border-border text-xs text-text-muted code-font">
               {settings.selectedModel}
             </span>
-            <span className="px-2 py-1 rounded bg-bg-tertiary border border-border">
-              {settings.provider === 'ollama' ? '🏠 Локально' : settings.provider === 'gigachat' ? '🇷🇺 GigaChat' : '🇷🇺 YandexGPT'}
+            <span className="px-2 py-1 rounded-md bg-green/5 border border-green/20 text-xs text-green">
+              🔒 Локально
             </span>
           </div>
         </div>
@@ -322,6 +360,7 @@ export default function App() {
         {/* Chat Area */}
         <ChatView
           messages={activeSession?.messages || []}
+          streamingContent={isLoading ? streamingContent : null}
           onSendMessage={handleSendMessage}
           isLoading={isLoading}
           onStop={handleStop}
@@ -330,7 +369,7 @@ export default function App() {
         />
       </div>
 
-      {/* Settings Modal */}
+      {/* Modals */}
       {showSettings && (
         <SettingsPanel
           settings={settings}
@@ -339,7 +378,6 @@ export default function App() {
         />
       )}
 
-      {/* File Manager Modal */}
       {showFiles && (
         <FileManager
           files={allFiles}
@@ -353,16 +391,4 @@ export default function App() {
       )}
     </div>
   );
-}
-
-// Helper function to find a file by ID in nested structure
-function findFileById(id: string, files: FileNode[]): FileNode | null {
-  for (const file of files) {
-    if (file.id === id) return file;
-    if (file.children) {
-      const found = findFileById(id, file.children);
-      if (found) return found;
-    }
-  }
-  return null;
 }
