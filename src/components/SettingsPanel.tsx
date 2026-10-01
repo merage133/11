@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle, XCircle, Copy, Check, Zap, Terminal, Shield, Mic, Volume2 } from 'lucide-react';
+import { X, CheckCircle, XCircle, Copy, Check, Zap, Terminal, Shield } from 'lucide-react';
 import { AppSettings } from '../types';
 import { MODELS, checkOllamaConnection, getOllamaModels } from '../config';
-import { VoiceSettings } from './VoiceSettings';
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -80,21 +79,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <div className="flex border-b border-border px-5 mt-4 overflow-x-auto">
           {[
             { id: 'connection', label: 'Подключение' },
-            { id: 'voice', label: 'Голос', icon: Volume2 },
-            { id: 'wakeword', label: 'Активация', icon: Mic },
             { id: 'setup', label: 'Установка' },
             { id: 'params', label: 'Параметры' },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as typeof activeTab)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-accent text-accent'
                   : 'border-transparent text-text-secondary hover:text-text-primary'
               }`}
             >
-              {tab.icon && <tab.icon className="w-3.5 h-3.5" />}
               {tab.label}
             </button>
           ))}
@@ -300,94 +296,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   <li>• <strong>Интернет:</strong> Не нужен после установки модели</li>
                 </ul>
               </div>
-            </div>
-          )}
-
-          {activeTab === 'voice' && (
-            <VoiceSettings
-              voiceName={settings.voice?.voiceName || ''}
-              rate={settings.voice?.rate || 1.0}
-              pitch={settings.voice?.pitch || 1.0}
-              volume={settings.voice?.volume || 1.0}
-              autoSpeak={settings.voice?.autoSpeak || false}
-              onChange={(voiceSettings) => onUpdate({ voice: voiceSettings })}
-            />
-          )}
-
-          {activeTab === 'wakeword' && (
-            <div className="space-y-5">
-              <div className="bg-bg-tertiary border border-border rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h4 className="text-sm font-medium text-text-primary flex items-center gap-2">
-                      <Mic className="w-4 h-4 text-accent" />
-                      Голосовая активация
-                    </h4>
-                    <p className="text-xs text-text-muted mt-1">
-                      Скажите фразу активации чтобы открыть Live Mode
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => onUpdate({ 
-                      wakeWord: { 
-                        ...settings.wakeWord, 
-                        enabled: !settings.wakeWord?.enabled 
-                      } 
-                    })}
-                    className={`relative w-12 h-6 rounded-full transition-colors ${
-                      settings.wakeWord?.enabled ? 'bg-accent' : 'bg-bg-hover'
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                        settings.wakeWord?.enabled ? 'translate-x-7' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {settings.wakeWord?.enabled && (
-                  <div className="mt-4">
-                    <label className="text-sm font-medium text-text-primary block mb-2">
-                      Фраза активации
-                    </label>
-                    <input
-                      type="text"
-                      value={settings.wakeWord?.phrase || ''}
-                      onChange={(e) => onUpdate({ 
-                        wakeWord: { 
-                          enabled: settings.wakeWord?.enabled || false,
-                          phrase: e.target.value 
-                        } 
-                      })}
-                      className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary outline-none focus:border-accent/50 transition-colors"
-                      placeholder="Например: привет ассистент"
-                    />
-                    <p className="text-xs text-text-muted mt-1.5">
-                      Произнесите эту фразу чтобы активировать голосовой режим
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="bg-accent/5 border border-accent/20 rounded-xl p-4">
-                <h4 className="text-sm font-medium text-text-primary mb-2">Как это работает</h4>
-                <ul className="text-xs text-text-secondary space-y-1.5">
-                  <li>• Браузер постоянно слушает микрофон</li>
-                  <li>• При произнесении фразы активации открывается Live Mode</li>
-                  <li>• После активации можно говорить с AI</li>
-                  <li>• AI отвечает голосом (если включена автоозвучка)</li>
-                </ul>
-              </div>
-
-              {settings.wakeWord?.enabled && (
-                <div className="bg-orange/5 border border-orange/20 rounded-xl p-4">
-                  <p className="text-xs text-orange">
-                    <strong>Внимание:</strong> Для работы требуется разрешение на использование микрофона. 
-                    Браузер будет постоянно слушать фон для обнаружения фразы активации.
-                  </p>
-                </div>
-              )}
             </div>
           )}
 

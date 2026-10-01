@@ -142,6 +142,50 @@ function searchInternet(query) {
   });
 }
 
+// Получение содержимого URL
+function fetchUrlContent(url) {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith('https') ? https : http;
+    
+    client.get(url, { 
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' 
+      } 
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          // Извлекаем title
+          const titleMatch = data.match(/<title[^>]*>([^<]+)<\/title>/i);
+          const title = titleMatch ? titleMatch[1].trim() : url;
+          
+          // Извлекаем основной текст (упрощенно)
+          const bodyMatch = data.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+          let content = '';
+          
+          if (bodyMatch) {
+            // Убираем скрипты и стили
+            content = bodyMatch[1]
+              .replace(/<script[\s\S]*?<\/script>/gi, '')
+              .replace(/<style[\s\S]*?<\/style>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 5000); // Ограничиваем размер
+          }
+          
+          resolve({ title, content: content || 'Не удалось извлечь содержимое' });
+        } catch (e) {
+          reject(new Error('Ошибка парсинга: ' + e.message));
+        }
+      });
+    }).on('error', (e) => {
+      reject(new Error('Ошибка запроса: ' + e.message));
+    });
+  });
+}
+
 // Поиск через Wikipedia API
 function searchWikipedia(query) {
   return new Promise((resolve, reject) => {
@@ -173,6 +217,64 @@ function searchWikipedia(query) {
     }).on('error', (e) => {
       reject(new Error('Ошибка запроса Wikipedia: ' + e.message));
     });
+  });
+}
+
+// Поиск через SearXNG (мета-поисковик, агрегирует Google, Bing, DuckDuckGo)
+function searchSearXNG(query) {
+  return new Promise((resolve, reject) => {
+    // Используем публичные инстансы SearXNG
+    const instances = [
+      'https://search.bus-hit.me',
+      'https://searx.be',
+      'https://search.ononoki.org'
+    ];
+    
+    const tryInstance = (index) => {
+      if (index >= instances.length) {
+        resolve({ success: false, results: [] });
+        return;
+      }
+      
+      const url = `${instances[index]}/search?q=${encodeURIComponent(query)}&format=json&language=ru`;
+      
+      https.get(url, { 
+        headers: { 
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' 
+        } 
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => data += chunk);
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            const results = [];
+            
+            if (json.results && json.results.length > 0) {
+              json.results.slice(0, 5).forEach((item) => {
+                results.push({
+                  title: item.title || 'Без названия',
+                  snippet: item.content || '',
+                  url: item.url || ''
+                });
+              });
+            }
+            
+            if (results.length > 0) {
+              resolve({ success: true, results });
+            } else {
+              tryInstance(index + 1);
+            }
+          } catch (e) {
+            tryInstance(index + 1);
+          }
+        });
+      }).on('error', () => {
+        tryInstance(index + 1);
+      });
+    };
+    
+    tryInstance(0);
   });
 }
 
@@ -279,6 +381,24 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // Получение содержимого URL
+    if (pathname === '/api/fetch-url' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.url) {
+        sendJson(res, 400, { error: 'Не указан URL' });
+        return;
+      }
+      
+      try {
+        const result = await fetchUrlContent(body.url);
+        sendJson(res, 200, result);
+      } catch (err) {
+        sendJson(res, 500, { error: err.message });
+      }
+      return;
+    }
+
     // Поиск в интернете
     if (pathname === '/api/search' && req.method === 'POST') {
       const body = await parseBody(req);
@@ -289,8 +409,8 @@ async function handleRequest(req, res) {
       }
       
       try {
-        // Сначала пробуем Instant Answer API
-        let result = await searchInternet(body.query);
+        // Сначала пробуем SearXNG (мета-поисковик с Google, Bing, DuckDuckGo)
+        let result = await searchSearXNG(body.query);
         
         // Если ничего не найдено, пробуем Wikipedia
         if (!result.success || result.results.length === 0) {
@@ -301,6 +421,15 @@ async function handleRequest(req, res) {
             }
           } catch (wikiError) {
             // Игнорируем ошибки Wikipedia
+          }
+        }
+        
+        // Если все еще ничего не найдено, пробуем DuckDuckGo Instant Answer
+        if (!result.success || result.results.length === 0) {
+          try {
+            result = await searchInternet(body.query);
+          } catch (ddgError) {
+            // Игнорируем ошибки
           }
         }
         

@@ -36,15 +36,4 @@ export interface AppSettings {
   maxTokens: number;
   systemPrompt: string;
   theme: 'dark' | 'light';
-  voice?: {
-    voiceName: string;
-    rate: number;
-    pitch: number;
-    volume: number;
-    autoSpeak: boolean;
-  };
-  wakeWord?: {
-    enabled: boolean;
-    phrase?: string;
-  };
 }

@@ -8,6 +8,7 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
+  BookOpen,
 } from 'lucide-react';
 import { ChatSession } from '../types';
 
@@ -19,6 +20,7 @@ interface SidebarProps {
   onDeleteSession: (id: string) => void;
   onOpenSettings: () => void;
   onOpenFiles: () => void;
+  onOpenKnowledge: () => void;
   ollamaConnected: boolean;
   currentModel: string;
   collapsed: boolean;
@@ -32,6 +34,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteSession,
   onOpenSettings,
   onOpenFiles,
+  onOpenKnowledge,
   ollamaConnected,
   currentModel,
   collapsed,
@@ -125,6 +128,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Bottom Actions */}
       <div className="p-3 border-t border-border space-y-1">
+        <button
+          onClick={onOpenKnowledge}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-sm"
+        >
+          <BookOpen className="w-4 h-4" />
+          База знаний
+        </button>
         <button
           onClick={onOpenFiles}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-sm"
