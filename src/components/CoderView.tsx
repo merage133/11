@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { X, Send, Square, Bot, User, Play, RotateCcw, Code2 } from 'lucide-react';
+import { X, Send, Square, Bot, User, Play, RotateCcw, Code2, CheckCircle, AlertCircle } from 'lucide-react';
 import { Message } from '../types';
 import { CodeBlock } from './CodeBlock';
 
@@ -15,6 +15,8 @@ interface CoderViewProps {
   currentModel: string;
 }
 
+const SUPPORTED_LANGUAGES = ['javascript', 'typescript', 'html', 'css', 'python', 'c++', 'c#', 'java', 'go', 'rust'];
+
 export const CoderView: React.FC<CoderViewProps> = ({
   isOpen,
   onClose,
@@ -27,6 +29,10 @@ export const CoderView: React.FC<CoderViewProps> = ({
 }) => {
   const [input, setInput] = useState('');
   const [codeRunner, setCodeRunner] = useState<{ code: string; language: string } | null>(null);
+  const [executionResult, setExecutionResult] = useState<string | null>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [autoFixMode, setAutoFixMode] = useState(true);
+  const [fixAttempts, setFixAttempts] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -47,12 +53,63 @@ export const CoderView: React.FC<CoderViewProps> = ({
     if (!text || isLoading) return;
     onSendMessage(text);
     setInput('');
+    setFixAttempts(0);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
+    }
+  };
+
+  const executeCode = async (code: string, language: string) => {
+    setIsExecuting(true);
+    setExecutionResult(null);
+    setCodeRunner({ code, language });
+
+    const lang = language.toLowerCase();
+    
+    // Для веб-языков используем iframe
+    if (['javascript', 'typescript', 'html', 'css'].includes(lang)) {
+      setIsExecuting(false);
+      return;
+    }
+
+    // Для остальных языков отправляем на сервер
+    try {
+      const response = await fetch('http://localhost:3001/api/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, language: lang }),
+      });
+
+      const data = await response.json();
+      setExecutionResult(data.result || data.error);
+
+      // Автоматическое исправление если включено и есть ошибка
+      if (autoFixMode && data.error && fixAttempts < 3) {
+        setFixAttempts(prev => prev + 1);
+        
+        // Добавляем сообщение об ошибке
+        const errorMsg: Message = {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `⚠️ Ошибка при выполнении:\n\`\`\`\n${data.error}\n\`\`\`\n\nИсправляю код...`,
+          timestamp: new Date(),
+        };
+        
+        // Отправляем запрос на исправление
+        const fixRequest = `Код содержит ошибку:\n\`\`\`${lang}\n${code}\n\`\`\`\n\nОшибка:\n${data.error}\n\nИсправь код и напиши полностью исправленную версию.`;
+        
+        setTimeout(() => {
+          onSendMessage(fixRequest);
+        }, 1000);
+      }
+    } catch (error) {
+      setExecutionResult(`Ошибка подключения к серверу: ${error}`);
+    } finally {
+      setIsExecuting(false);
     }
   };
 
@@ -70,6 +127,24 @@ export const CoderView: React.FC<CoderViewProps> = ({
           {currentModel}
         </span>
         <div className="flex-1" />
+        
+        {/* Auto-fix toggle */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-bg-tertiary border border-border">
+          <span className="text-xs text-text-secondary">Автоисправление</span>
+          <button
+            onClick={() => setAutoFixMode(!autoFixMode)}
+            className={`relative w-10 h-5 rounded-full transition-colors ${
+              autoFixMode ? 'bg-green' : 'bg-bg-hover'
+            }`}
+          >
+            <div
+              className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                autoFixMode ? 'translate-x-5' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </div>
+
         <button
           onClick={onClose}
           className="p-2 rounded-lg hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
@@ -91,15 +166,20 @@ export const CoderView: React.FC<CoderViewProps> = ({
                   <Code2 className="w-8 h-8 text-accent" />
                 </div>
                 <h2 className="text-xl font-bold text-text-primary mb-2">CODER</h2>
-                <p className="text-text-secondary text-sm max-w-md mb-6">
-                  AI-ассистент для написания кода с предпросмотром и запуском
+                <p className="text-text-secondary text-sm max-w-md mb-4">
+                  AI-ассистент для написания кода с автоматической проверкой и исправлением
                 </p>
+                <div className="mb-4 px-4 py-2 rounded-lg bg-bg-tertiary border border-border">
+                  <p className="text-xs text-text-muted">
+                    Поддерживаемые языки: {SUPPORTED_LANGUAGES.join(', ')}
+                  </p>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full">
                   {[
                     'Напиши функцию сортировки на JavaScript',
-                    'Создай HTML страницу с формой',
-                    'Напиши CSS анимацию',
-                    'Создай React компонент',
+                    'Создай программу на Python для работы с файлами',
+                    'Напиши класс на C++ с конструктором',
+                    'Создай программу на C# для расчётов',
                   ].map((suggestion) => (
                     <button
                       key={suggestion}
@@ -151,7 +231,7 @@ export const CoderView: React.FC<CoderViewProps> = ({
                                     <CodeBlock
                                       code={codeString}
                                       language={language}
-                                      onRun={(code, lang) => setCodeRunner({ code, language: lang })}
+                                      onRun={(code, lang) => executeCode(code, lang)}
                                     />
                                   );
                                 }
@@ -205,7 +285,9 @@ export const CoderView: React.FC<CoderViewProps> = ({
                           <div className="w-2 h-2 bg-accent rounded-full animate-pulse-dot" style={{ animationDelay: '0.3s' }} />
                           <div className="w-2 h-2 bg-accent rounded-full animate-pulse-dot" style={{ animationDelay: '0.6s' }} />
                         </div>
-                        <span className="text-xs text-text-muted">Пишу код...</span>
+                        <span className="text-xs text-text-muted">
+                          {fixAttempts > 0 ? `Исправляю код (попытка ${fixAttempts}/3)...` : 'Пишу код...'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -251,7 +333,7 @@ export const CoderView: React.FC<CoderViewProps> = ({
                 </div>
               </form>
               <p className="text-[10px] text-text-muted mt-2 text-center tracking-wide">
-                💻 CODER • Предпросмотр и запуск кода
+                💻 CODER • Автоматическая проверка и исправление кода
               </p>
             </div>
           </div>
@@ -264,21 +346,30 @@ export const CoderView: React.FC<CoderViewProps> = ({
               {/* Preview header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg-tertiary">
                 <div className="flex items-center gap-2">
-                  <Play className="w-4 h-4 text-green" />
+                  {isExecuting ? (
+                    <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                  ) : executionResult && !executionResult.includes('Ошибка') ? (
+                    <CheckCircle className="w-4 h-4 text-green" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-red" />
+                  )}
                   <span className="text-sm font-medium text-text-primary">
-                    Предпросмотр ({codeRunner.language})
+                    {isExecuting ? 'Выполняется...' : `Результат (${codeRunner.language})`}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setCodeRunner({ ...codeRunner })}
+                    onClick={() => executeCode(codeRunner.code, codeRunner.language)}
                     className="p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
                     title="Перезапустить"
                   >
                     <RotateCcw className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => setCodeRunner(null)}
+                    onClick={() => {
+                      setCodeRunner(null);
+                      setExecutionResult(null);
+                    }}
                     className="p-1.5 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
                     title="Закрыть предпросмотр"
                   >
@@ -288,14 +379,31 @@ export const CoderView: React.FC<CoderViewProps> = ({
               </div>
 
               {/* Preview content */}
-              <div className="flex-1 overflow-hidden bg-white">
-                <iframe
-                  key={codeRunner.code}
-                  srcDoc={generatePreviewHTML(codeRunner.code, codeRunner.language)}
-                  className="w-full h-full border-0"
-                  sandbox="allow-scripts allow-same-origin"
-                  title="Code Preview"
-                />
+              <div className="flex-1 overflow-hidden">
+                {['javascript', 'typescript', 'html', 'css'].includes(codeRunner.language.toLowerCase()) ? (
+                  <iframe
+                    key={codeRunner.code}
+                    srcDoc={generatePreviewHTML(codeRunner.code, codeRunner.language)}
+                    className="w-full h-full border-0 bg-white"
+                    sandbox="allow-scripts allow-same-origin"
+                    title="Code Preview"
+                  />
+                ) : (
+                  <div className="h-full overflow-auto p-4 bg-bg-primary">
+                    {isExecuting ? (
+                      <div className="flex items-center justify-center h-full">
+                        <div className="text-center">
+                          <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                          <p className="text-sm text-text-muted">Компиляция и выполнение...</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <pre className="text-sm text-text-primary font-mono whitespace-pre-wrap">
+                        {executionResult || 'Нажмите "Запуск" на блоке кода'}
+                      </pre>
+                    )}
+                  </div>
+                )}
               </div>
             </>
           ) : (
@@ -306,6 +414,11 @@ export const CoderView: React.FC<CoderViewProps> = ({
                 <p className="text-text-muted text-xs mt-1">
                   Нажмите "Запуск" на блоке кода чтобы увидеть результат
                 </p>
+                <div className="mt-4 px-4 py-2 rounded-lg bg-bg-tertiary border border-border">
+                  <p className="text-xs text-text-muted">
+                    Поддерживается автоматическое исправление ошибок
+                  </p>
+                </div>
               </div>
             </div>
           )}

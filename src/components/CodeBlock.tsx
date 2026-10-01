@@ -26,7 +26,10 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ code, language, onRun }) =
     }
   };
 
-  const canRun = language && ['javascript', 'js', 'html', 'css', 'typescript', 'ts'].includes(language.toLowerCase());
+  const canRun = language && [
+    'javascript', 'js', 'html', 'css', 'typescript', 'ts',
+    'python', 'py', 'c++', 'cpp', 'c', 'c#', 'csharp', 'java', 'go', 'rust', 'rs'
+  ].includes(language.toLowerCase());
 
   return (
     <div className="relative group my-3 rounded-lg overflow-hidden border border-border bg-bg-tertiary">

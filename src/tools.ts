@@ -208,6 +208,21 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'compile_and_run',
+      description: 'Скомпилировать и выполнить код на различных языках программирования. Поддерживает: JavaScript, Python, C++, C#, Java, Go, Rust. Используй когда нужно проверить работоспособность кода.',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', description: 'Код для компиляции и выполнения' },
+          language: { type: 'string', description: 'Язык программирования: javascript, python, c++, c#, java, go, rust' },
+        },
+        required: ['code', 'language'],
+      },
+    },
+  },
 ];
 
 // Локальный сервер
@@ -408,6 +423,20 @@ export async function executeTool(
           content: `Текущее время: ${time}\nДата: ${date}\nЧасовой пояс: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`, 
           success: true 
         };
+      }
+
+      case 'compile_and_run': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/compile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: parsedArgs.code, language: parsedArgs.language }),
+          });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
       }
 
       default:

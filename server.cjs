@@ -674,6 +674,122 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // Компиляция и выполнение кода
+    if (pathname === '/api/compile' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.code || !body.language) {
+        sendJson(res, 400, { error: 'Не указан код или язык' });
+        return;
+      }
+
+      const tempDir = path.join(os.tmpdir(), 'mirage-coder-' + Date.now());
+      fs.mkdirSync(tempDir, { recursive: true });
+
+      try {
+        let result = '';
+        const lang = body.language.toLowerCase();
+
+        if (lang === 'javascript' || lang === 'js') {
+          // Выполняем JS через Node.js
+          const tempFile = path.join(tempDir, 'script.js');
+          fs.writeFileSync(tempFile, body.code);
+          const execResult = await runCommand(`node "${tempFile}"`, 10000);
+          result = execResult.output;
+        } 
+        else if (lang === 'python' || lang === 'py') {
+          const tempFile = path.join(tempDir, 'script.py');
+          fs.writeFileSync(tempFile, body.code);
+          const execResult = await runCommand(`python "${tempFile}"`, 10000);
+          result = execResult.output;
+        }
+        else if (lang === 'c++' || lang === 'cpp' || lang === 'c') {
+          const tempFile = path.join(tempDir, 'program.cpp');
+          const exeFile = path.join(tempDir, 'program.exe');
+          fs.writeFileSync(tempFile, body.code);
+          
+          // Компиляция
+          const compileResult = await runCommand(`g++ "${tempFile}" -o "${exeFile}"`, 15000);
+          if (!compileResult.success) {
+            result = 'Ошибка компиляции:\n' + compileResult.output;
+          } else {
+            // Выполнение
+            const execResult = await runCommand(`"${exeFile}"`, 10000);
+            result = execResult.output;
+          }
+        }
+        else if (lang === 'c#' || lang === 'csharp') {
+          const tempFile = path.join(tempDir, 'Program.cs');
+          const exeFile = path.join(tempDir, 'program.exe');
+          fs.writeFileSync(tempFile, body.code);
+          
+          // Компиляция через csc
+          const compileResult = await runCommand(`csc "${tempFile}" /out:"${exeFile}"`, 15000);
+          if (!compileResult.success) {
+            result = 'Ошибка компиляции:\n' + compileResult.output;
+          } else {
+            // Выполнение
+            const execResult = await runCommand(`"${exeFile}"`, 10000);
+            result = execResult.output;
+          }
+        }
+        else if (lang === 'java') {
+          const tempFile = path.join(tempDir, 'Main.java');
+          fs.writeFileSync(tempFile, body.code);
+          
+          // Компиляция
+          const compileResult = await runCommand(`javac "${tempFile}"`, 15000);
+          if (!compileResult.success) {
+            result = 'Ошибка компиляции:\n' + compileResult.output;
+          } else {
+            // Выполнение
+            const execResult = await runCommand(`java -cp "${tempDir}" Main`, 10000);
+            result = execResult.output;
+          }
+        }
+        else if (lang === 'go') {
+          const tempFile = path.join(tempDir, 'main.go');
+          fs.writeFileSync(tempFile, body.code);
+          const execResult = await runCommand(`go run "${tempFile}"`, 15000);
+          result = execResult.output;
+        }
+        else if (lang === 'rust' || lang === 'rs') {
+          const tempFile = path.join(tempDir, 'main.rs');
+          fs.writeFileSync(tempFile, body.code);
+          
+          // Компиляция
+          const compileResult = await runCommand(`rustc "${tempFile}" -o "${path.join(tempDir, 'main.exe')}"`, 20000);
+          if (!compileResult.success) {
+            result = 'Ошибка компиляции:\n' + compileResult.output;
+          } else {
+            // Выполнение
+            const execResult = await runCommand(`"${path.join(tempDir, 'main.exe')}"`, 10000);
+            result = execResult.output;
+          }
+        }
+        else {
+          result = `Язык ${body.language} не поддерживается для выполнения. Поддерживаются: JavaScript, Python, C++, C#, Java, Go, Rust`;
+        }
+
+        // Очистка временных файлов
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch (e) {
+          // Игнорируем ошибки очистки
+        }
+
+        sendJson(res, 200, { result: result || '(нет вывода)', success: true });
+      } catch (err) {
+        // Очистка при ошибке
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch (e) {}
+        
+        sendJson(res, 500, { error: err.message });
+      }
+      return;
+    }
+
     // 404
     sendJson(res, 404, { error: `Unknown endpoint: ${pathname}` });
   } catch (error) {
