@@ -10,6 +10,7 @@ import {
   ChevronRight,
   BookOpen,
   GitBranch,
+  Code2,
 } from 'lucide-react';
 import { ChatSession } from '../types';
 
@@ -23,6 +24,7 @@ interface SidebarProps {
   onOpenFiles: () => void;
   onOpenKnowledge: () => void;
   onOpenBranches: () => void;
+  onOpenCoder: () => void;
   ollamaConnected: boolean;
   currentModel: string;
   collapsed: boolean;
@@ -38,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenFiles,
   onOpenKnowledge,
   onOpenBranches,
+  onOpenCoder,
   ollamaConnected,
   currentModel,
   collapsed,
@@ -131,6 +134,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Bottom Actions */}
       <div className="p-3 border-t border-border space-y-1">
+        <button
+          onClick={onOpenCoder}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 transition-colors text-sm font-medium border border-accent/20"
+        >
+          <Code2 className="w-4 h-4" />
+          CODER
+        </button>
         <button
           onClick={onOpenBranches}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-sm"

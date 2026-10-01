@@ -10,6 +10,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { FileManager } from './components/FileManager';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { BranchManager } from './components/BranchManager';
+import { CoderView } from './components/CoderView';
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -57,7 +58,11 @@ export default function App() {
   const [showFiles, setShowFiles] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [showBranches, setShowBranches] = useState(false);
+  const [showCoder, setShowCoder] = useState(false);
   const [branches, setBranches] = useState<Array<{ id: string; name: string; sessionIds: string[]; createdAt: Date }>>([]);
+  const [coderMessages, setCoderMessages] = useState<Message[]>([]);
+  const [coderStreaming, setCoderStreaming] = useState<string | null>(null);
+  const [coderLoading, setCoderLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [ollamaConnected, setOllamaConnected] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -356,6 +361,62 @@ export default function App() {
     );
   }, []);
 
+  const handleCoderMessage = useCallback(async (content: string) => {
+    const userMessage: Message = {
+      id: generateId(),
+      role: 'user',
+      content,
+      timestamp: new Date(),
+    };
+
+    setCoderMessages((prev) => [...prev, userMessage]);
+    setCoderLoading(true);
+    setCoderStreaming('');
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const apiMessages = [
+        { role: 'system', content: 'Ты — AI-ассистент для написания кода. Пиши код качественно, с комментариями. Оборачивай код в блоки ```язык ... ```.' },
+        ...coderMessages.map((m) => ({ role: m.role, content: m.content })),
+        { role: 'user', content },
+      ];
+
+      const response = await sendOllamaMessage(
+        settings.ollamaUrl,
+        settings.selectedModel,
+        apiMessages,
+        settings.temperature,
+        (chunk) => setCoderStreaming((prev) => (prev || '') + chunk),
+        controller.signal
+      );
+
+      const assistantMessage: Message = {
+        id: generateId(),
+        role: 'assistant',
+        content: response || coderStreaming || '',
+        timestamp: new Date(),
+        model: settings.selectedModel,
+      };
+
+      setCoderMessages((prev) => [...prev, assistantMessage]);
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error('Неизвестная ошибка');
+      const errorMessage: Message = {
+        id: generateId(),
+        role: 'assistant',
+        content: `⚠️ Ошибка: ${err.message}`,
+        timestamp: new Date(),
+      };
+      setCoderMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setCoderLoading(false);
+      setCoderStreaming(null);
+      abortRef.current = null;
+    }
+  }, [coderMessages, coderStreaming, settings]);
+
   const handleScreenshot = useCallback(async (base64: string) => {
     // Добавляем скриншот как сообщение пользователя
     let sessionId = activeSessionId;
@@ -455,6 +516,7 @@ export default function App() {
           onOpenFiles={() => setShowFiles(true)}
           onOpenKnowledge={() => setShowKnowledge(true)}
           onOpenBranches={() => setShowBranches(true)}
+          onOpenCoder={() => setShowCoder(true)}
           ollamaConnected={ollamaConnected}
           currentModel={settings.selectedModel}
           collapsed={false}
@@ -492,6 +554,10 @@ export default function App() {
             }}
             onOpenBranches={() => {
               setShowBranches(true);
+              setSidebarCollapsed(true);
+            }}
+            onOpenCoder={() => {
+              setShowCoder(true);
               setSidebarCollapsed(true);
             }}
             ollamaConnected={ollamaConnected}
@@ -612,6 +678,19 @@ export default function App() {
               )
             );
           }}
+        />
+      )}
+
+      {showCoder && (
+        <CoderView
+          isOpen={showCoder}
+          onClose={() => setShowCoder(false)}
+          messages={coderMessages}
+          streamingContent={coderStreaming}
+          onSendMessage={handleCoderMessage}
+          isLoading={coderLoading}
+          onStop={() => abortRef.current?.abort()}
+          currentModel={settings.selectedModel}
         />
       )}
 
