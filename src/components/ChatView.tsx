@@ -67,10 +67,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   };
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      // Fallback для старых браузеров или iframe
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        setCopiedId(id);
+        setTimeout(() => setCopiedId(null), 2000);
+      } catch (e) {
+        console.error('Не удалось скопировать:', e);
+      }
+      document.body.removeChild(textArea);
+    }
   };
 
   const handleScreenCapture = async () => {
@@ -278,12 +296,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 ref={textareaRef}
                 value={input + (isListening && interimTranscript ? ' ' + interimTranscript : '')}
                 onChange={(e) => {
-                  // Если голос активен, не даём менять промежуточный текст
+                  // Когда голос активен, позволяем редактировать только базовый текст
                   if (isListening && interimTranscript) {
-                    const baseText = input;
                     const newValue = e.target.value;
-                    if (newValue.startsWith(baseText)) {
-                      setInput(newValue.replace(interimTranscript, '').trim());
+                    // Если пользователь удаляет interimTranscript, просто игнорируем
+                    if (!newValue.includes(interimTranscript)) {
+                      // Пользователь редактирует базовый текст
+                      setInput(newValue);
                     }
                   } else {
                     setInput(e.target.value);

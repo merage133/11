@@ -55,8 +55,8 @@ if %ERRORLEVEL% NEQ 0 (
     timeout /t 3 /nobreak >nul
 )
 
-:: Проверяем подключение к Ollama
-curl -s http://localhost:11434/api/tags >nul 2>&1
+:: Проверяем подключение к Ollama с помощью PowerShell (кроссплатформенно для Windows)
+powershell -Command "try { $r = Invoke-WebRequest -Uri 'http://localhost:11434/api/tags' -TimeoutSec 3 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo  ❌ Ollama не отвечает!
     echo.
@@ -105,8 +105,8 @@ if %ERRORLEVEL% EQU 0 (
 start "RU AI Server" /B cmd /c "node server.js"
 timeout /t 2 /nobreak >nul
 
-:: Проверяем сервер
-curl -s http://localhost:3001/api/health >nul 2>&1
+:: Проверяем сервер с помощью PowerShell (кроссплатформенно для Windows)
+powershell -Command "try { $r = Invoke-WebRequest -Uri 'http://localhost:3001/api/health' -TimeoutSec 3 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo  ❌ Сервер не запустился!
     echo.

@@ -202,7 +202,13 @@ export async function executeTool(
   screenCaptureFn?: () => Promise<string | null>
 ): Promise<ToolResult> {
   const { name, arguments: args } = toolCall.function;
-  const parsedArgs = typeof args === 'string' ? JSON.parse(args) : args;
+  let parsedArgs: Record<string, string>;
+  
+  try {
+    parsedArgs = typeof args === 'string' ? JSON.parse(args) : (args || {});
+  } catch {
+    return { name, content: `Ошибка парсинга аргументов: ${JSON.stringify(args)}`, success: false };
+  }
 
   try {
     switch (name) {

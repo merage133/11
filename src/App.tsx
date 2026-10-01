@@ -29,7 +29,7 @@ function loadSessions(): ChatSession[] {
       return sessions.map((s: ChatSession) => ({
         ...s,
         createdAt: new Date(s.createdAt),
-        messages: s.messages.map((m: Message) => ({ ...m, timestamp: new Date(m.timestamp) })),
+        messages: (s.messages || []).map((m: Message) => ({ ...m, timestamp: new Date(m.timestamp) })),
       }));
     }
   } catch { /* empty */ }
@@ -121,8 +121,8 @@ export default function App() {
 
   // Добавить сообщение в сессию
   const addMessageToSession = useCallback((sessionId: string, msg: Message) => {
-    setSessions((prev) =>
-      prev.map((s) => {
+    setSessions((prev) => {
+      const updated = prev.map((s) => {
         if (s.id === sessionId) {
           const updatedMessages = [...s.messages, msg];
           const title = s.messages.length === 0 && msg.role === 'user'
@@ -131,8 +131,11 @@ export default function App() {
           return { ...s, messages: updatedMessages, title };
         }
         return s;
-      })
-    );
+      });
+      // Обновляем ref синхронно
+      sessionsRef.current = updated;
+      return updated;
+    });
   }, []);
 
   const handleSendMessage = useCallback(
@@ -253,17 +256,10 @@ export default function App() {
               controller.signal
             );
           } else {
-            // Нет tool calls — стримим обычный ответ
+            // Нет tool calls — показываем ответ сразу
             finalResponse = toolResponse.message.content;
             if (finalResponse) {
-              // Стримим для UX
-              const words = finalResponse.split(' ');
-              let accumulated = '';
-              for (const word of words) {
-                accumulated += word + ' ';
-                setStreamingContent(accumulated);
-                await new Promise((r) => setTimeout(r, 20));
-              }
+              setStreamingContent(finalResponse);
             }
           }
         } catch (toolError) {
@@ -385,7 +381,8 @@ export default function App() {
     abortRef.current = controller;
     
     try {
-      // Получаем историю и добавляем текущее сообщение
+      // Получаем историю из ref и добавляем текущее сообщение
+      // Используем sessionsRef.current, но добавляем msg вручную, так как ref может быть не обновлён
       const currentSession = sessionsRef.current.find((s) => s.id === sessionId);
       const history = [...(currentSession?.messages || []), msg];
       

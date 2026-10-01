@@ -177,8 +177,10 @@ export function useVoice(onFinalTranscript?: (text: string) => void): UseVoiceRe
 
 // Функция для захвата экрана
 export async function captureScreen(): Promise<string | null> {
+  let stream: MediaStream | null = null;
+  
   try {
-    const stream = await navigator.mediaDevices.getDisplayMedia({
+    stream = await navigator.mediaDevices.getDisplayMedia({
       video: {
         cursor: 'always',
       } as MediaStreamConstraints['video'],
@@ -187,10 +189,26 @@ export async function captureScreen(): Promise<string | null> {
 
     const video = document.createElement('video');
     video.srcObject = stream;
+    video.muted = true; // Избегаем проблем с autoplay
+    
     await video.play();
 
-    // Ждём пока кадр отрендерится
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Ждём пока видео загрузится и отрендерится
+    await new Promise<void>((resolve) => {
+      if (video.readyState >= 2) {
+        resolve();
+      } else {
+        video.onloadeddata = () => resolve();
+        // Таймаут на случай если событие не сработает
+        setTimeout(resolve, 1000);
+      }
+    });
+
+    // Проверяем размеры видео
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      stream.getTracks().forEach((t) => t.stop());
+      return null;
+    }
 
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
@@ -207,6 +225,10 @@ export async function captureScreen(): Promise<string | null> {
 
     return canvas.toDataURL('image/png');
   } catch {
+    // Очищаем stream если он был создан
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+    }
     return null;
   }
 }

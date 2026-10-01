@@ -34,9 +34,14 @@ function parseBody(req) {
     req.on('data', (chunk) => (body += chunk));
     req.on('end', () => {
       try {
-        resolve(body ? JSON.parse(body) : {});
+        // Обрабатываем пустое тело
+        if (!body || body.trim() === '') {
+          resolve({});
+        } else {
+          resolve(JSON.parse(body));
+        }
       } catch (e) {
-        reject(e);
+        reject(new Error(`Ошибка парсинга JSON: ${e.message}`));
       }
     });
     req.on('error', reject);
@@ -165,17 +170,21 @@ async function handleRequest(req, res) {
       }
       dirPath = safePath(dirPath);
 
-      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-      const files = entries.map((entry) => ({
-        name: entry.name,
-        type: entry.isDirectory() ? 'folder' : 'file',
-        path: path.join(dirPath, entry.name),
-        size: entry.isFile() ? fs.statSync(path.join(dirPath, entry.name)).size : null,
-      }));
+      try {
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        const files = entries.map((entry) => ({
+          name: entry.name,
+          type: entry.isDirectory() ? 'folder' : 'file',
+          path: path.join(dirPath, entry.name),
+          size: entry.isFile() ? fs.statSync(path.join(dirPath, entry.name)).size : null,
+        }));
 
-      sendJson(res, 200, {
-        result: `Папка: ${dirPath}\n\n${files.map((f) => `${f.type === 'folder' ? '📁' : '📄'} ${f.name}${f.size ? ` (${(f.size / 1024).toFixed(1)} KB)` : ''}`).join('\n')}`,
-      });
+        sendJson(res, 200, {
+          result: `Папка: ${dirPath}\n\n${files.map((f) => `${f.type === 'folder' ? '📁' : '📄'} ${f.name}${f.size ? ` (${(f.size / 1024).toFixed(1)} KB)` : ''}`).join('\n')}`,
+        });
+      } catch (err) {
+        sendJson(res, 400, { error: `Ошибка чтения папки: ${err.message}` });
+      }
       return;
     }
 
@@ -202,16 +211,26 @@ async function handleRequest(req, res) {
     // Запись файла
     if (pathname === '/api/file/write' && req.method === 'POST') {
       const body = await parseBody(req);
-      const filePath = safePath(body.path);
       
-      // Создаём директорию если не существует
-      const dir = path.dirname(filePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+      if (!body.path) {
+        sendJson(res, 400, { error: 'Не указан путь файла' });
+        return;
       }
       
-      fs.writeFileSync(filePath, body.content, 'utf-8');
-      sendJson(res, 200, { result: `Файл записан: ${filePath} (${body.content.length} символов)` });
+      const filePath = safePath(body.path);
+      
+      try {
+        // Создаём директорию если не существует
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        
+        fs.writeFileSync(filePath, body.content || '', 'utf-8');
+        sendJson(res, 200, { result: `Файл записан: ${filePath} (${(body.content || '').length} символов)` });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка записи файла: ${err.message}` });
+      }
       return;
     }
 
@@ -309,6 +328,11 @@ async function handleRequest(req, res) {
     // Автоматизация браузера — ввод текста
     if (pathname === '/api/browser/type' && req.method === 'POST') {
       const body = await parseBody(req);
+      
+      if (!body.selector || body.text === undefined) {
+        sendJson(res, 400, { error: 'Не указаны selector или text' });
+        return;
+      }
       
       try {
         const puppeteer = require('puppeteer');

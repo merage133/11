@@ -55,13 +55,29 @@ if ! pgrep -x "ollama" > /dev/null; then
 fi
 
 # Проверяем подключение к Ollama
-if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-    echo "❌ Ollama не отвечает!"
-    echo ""
-    echo "Попробуйте запустить вручную: ollama serve"
-    echo ""
-    read -p "Нажмите Enter для выхода..."
-    exit 1
+if command -v curl &> /dev/null; then
+    if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+        echo "❌ Ollama не отвечает!"
+        echo ""
+        echo "Попробуйте запустить вручную: ollama serve"
+        echo ""
+        read -p "Нажмите Enter для выхода..."
+        exit 1
+    fi
+else
+    # Fallback: используем wget если curl не установлен
+    if command -v wget &> /dev/null; then
+        if ! wget -q --spider http://localhost:11434/api/tags 2>/dev/null; then
+            echo "❌ Ollama не отвечает!"
+            echo ""
+            echo "Попробуйте запустить вручную: ollama serve"
+            echo ""
+            read -p "Нажмите Enter для выхода..."
+            exit 1
+        fi
+    else
+        echo "⚠️  Не удалось проверить Ollama (curl/wget не установлены)"
+    fi
 fi
 echo "✅ Ollama работает"
 
@@ -101,13 +117,29 @@ SERVER_PID=$!
 sleep 2
 
 # Проверяем сервер
-if ! curl -s http://localhost:3001/api/health > /dev/null 2>&1; then
-    echo "❌ Сервер не запустился!"
-    echo ""
-    echo "Попробуйте вручную: node server.js"
-    echo ""
-    read -p "Нажмите Enter для выхода..."
-    exit 1
+if command -v curl &> /dev/null; then
+    if ! curl -s http://localhost:3001/api/health > /dev/null 2>&1; then
+        echo "❌ Сервер не запустился!"
+        echo ""
+        echo "Попробуйте вручную: node server.js"
+        echo ""
+        read -p "Нажмите Enter для выхода..."
+        exit 1
+    fi
+else
+    # Fallback: используем wget если curl не установлен
+    if command -v wget &> /dev/null; then
+        if ! wget -q --spider http://localhost:3001/api/health 2>/dev/null; then
+            echo "❌ Сервер не запустился!"
+            echo ""
+            echo "Попробуйте вручную: node server.js"
+            echo ""
+            read -p "Нажмите Enter для выхода..."
+            exit 1
+        fi
+    else
+        echo "⚠️  Не удалось проверить сервер (curl/wget не установлены)"
+    fi
 fi
 echo "✅ Сервер запущен"
 

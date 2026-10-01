@@ -55,13 +55,29 @@ function getDesktopPath() {
   } else if (os.platform() === 'darwin') {
     return path.join(home, 'Desktop');
   } else {
-    // Linux
-    return path.join(home, 'Рабочий стол') || path.join(home, 'Desktop');
+    // Linux — проверяем существование папки
+    const ruDesktop = path.join(home, 'Рабочий стол');
+    const enDesktop = path.join(home, 'Desktop');
+    
+    if (fs.existsSync(ruDesktop)) {
+      return ruDesktop;
+    } else if (fs.existsSync(enDesktop)) {
+      return enDesktop;
+    } else {
+      // Если ни одной нет, создаём Desktop
+      return enDesktop;
+    }
   }
 }
 
 function createWindowsShortcut(projectPath) {
   const desktop = getDesktopPath();
+  
+  // Создаём папку Desktop если не существует
+  if (!fs.existsSync(desktop)) {
+    fs.mkdirSync(desktop, { recursive: true });
+  }
+  
   const shortcutPath = path.join(desktop, 'RU AI Studio.bat');
   
   // Просто копируем start.bat на рабочий стол
@@ -247,17 +263,39 @@ async function main() {
   // Ждём 3 секунды
   await new Promise(resolve => setTimeout(resolve, 3000));
   
-  // Проверяем сервер
+  // Проверяем сервер с помощью Node.js (кроссплатформенно)
   try {
-    const response = execSync('curl -s http://localhost:3001/api/health').toString();
-    const health = JSON.parse(response);
-    if (health.status === 'ok') {
-      success('Сервер работает');
-    } else {
-      warning('Сервер ответил, но статус не ok');
-    }
+    const http = require('http');
+    await new Promise((resolve, reject) => {
+      const req = http.get('http://localhost:3001/api/health', (res) => {
+        let data = '';
+        res.on('data', (chunk) => data += chunk);
+        res.on('end', () => {
+          try {
+            const health = JSON.parse(data);
+            if (health.status === 'ok') {
+              success('Сервер работает');
+            } else {
+              warning('Сервер ответил, но статус не ok');
+            }
+          } catch {
+            warning('Сервер ответил, но не удалось распарсить ответ');
+          }
+          resolve();
+        });
+      });
+      req.on('error', () => {
+        warning('Сервер не отвечает (возможно, порт занят)');
+        resolve();
+      });
+      req.setTimeout(3000, () => {
+        req.destroy();
+        warning('Сервер не отвечает (таймаут)');
+        resolve();
+      });
+    });
   } catch {
-    warning('Сервер не отвечает (возможно, порт занят)');
+    warning('Не удалось проверить сервер');
   }
   
   // Останавливаем сервер
