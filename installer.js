@@ -51,7 +51,25 @@ function checkCommand(cmd) {
 function getDesktopPath() {
   const home = os.homedir();
   if (os.platform() === 'win32') {
-    return path.join(home, 'Desktop');
+    // Windows: проверяем несколько вариантов
+    const possiblePaths = [
+      path.join(home, 'Desktop'),
+      path.join(home, 'OneDrive', 'Desktop'),
+      path.join(home, 'OneDrive', 'Рабочий стол'),
+      path.join(home, 'Рабочий стол'),
+    ];
+    
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        return p;
+      }
+    }
+    // Если ни один не найден, создаём Desktop
+    const desktop = path.join(home, 'Desktop');
+    if (!fs.existsSync(desktop)) {
+      fs.mkdirSync(desktop, { recursive: true });
+    }
+    return desktop;
   } else if (os.platform() === 'darwin') {
     return path.join(home, 'Desktop');
   } else {
@@ -80,18 +98,14 @@ function createWindowsShortcut(projectPath) {
   
   const shortcutPath = path.join(desktop, 'RU AI Studio.bat');
   
-  // Просто копируем start.bat на рабочий стол
-  const startBatPath = path.join(projectPath, 'start.bat');
-  if (fs.existsSync(startBatPath)) {
-    fs.copyFileSync(startBatPath, shortcutPath);
-  } else {
-    // Если start.bat нет, создаём простой ярлык
-    const batContent = `@echo off
+  // Создаём bat файл для рабочего стола, который запускает start.bat из папки проекта
+  const batContent = `@echo off
+chcp 65001 >nul
+title RU AI Studio
 cd /d "${projectPath}"
 call start.bat
 `;
-    fs.writeFileSync(shortcutPath, batContent, 'utf-8');
-  }
+  fs.writeFileSync(shortcutPath, batContent, 'utf-8');
   
   return shortcutPath;
 }
@@ -180,60 +194,100 @@ async function main() {
 
   // 4. Проверяем Ollama
   step('Проверка Ollama...');
-  if (!checkCommand('ollama --version')) {
+  let ollamaInstalled = false;
+  let ollamaVersion = '';
+  
+  if (os.platform() === 'win32') {
+    // Windows: используем where для проверки
+    try {
+      const whereResult = execSync('where ollama', { stdio: 'pipe' }).toString().trim();
+      if (whereResult) {
+        ollamaInstalled = true;
+        try {
+          ollamaVersion = execSync('ollama --version', { stdio: 'pipe' }).toString().trim();
+        } catch {
+          ollamaVersion = 'установлена';
+        }
+      }
+    } catch {
+      ollamaInstalled = false;
+    }
+  } else {
+    // Linux/macOS: используем command -v
+    ollamaInstalled = checkCommand('command -v ollama');
+    if (ollamaInstalled) {
+      try {
+        ollamaVersion = execSync('ollama --version', { stdio: 'pipe' }).toString().trim();
+      } catch {
+        ollamaVersion = 'установлена';
+      }
+    }
+  }
+  
+  if (!ollamaInstalled) {
     warning('Ollama не установлена!');
     info('');
     info('Установите Ollama:');
     if (os.platform() === 'win32') {
-      info('  Скачайте с: https://ollama.com/download');
+      info('  1. Скачайте с: https://ollama.com/download');
+      info('  2. Запустите установщик');
+      info('  3. Перезапустите этот установщик');
     } else {
       info('  curl -fsSL https://ollama.com/install.sh | sh');
     }
     info('');
     info('После установки запустите установщик снова.');
   } else {
-    const ollamaVersion = execSync('ollama --version').toString().trim();
     success(`Ollama ${ollamaVersion}`);
 
     // 5. Предлагаем установить модель
     step('Проверка моделей...');
+    let modelsOutput = '';
     try {
-      const modelsOutput = execSync('ollama list').toString();
-      if (modelsOutput.includes('qwen2.5')) {
-        success('Модель qwen2.5 уже установлена');
-      } else {
-        warning('Модель qwen2.5 не найдена');
-        info('');
-        info('Рекомендуется установить модель для работы:');
-        info('  ollama pull qwen2.5:7b');
-        info('');
-        info('Размер: ~4.7 GB');
-        info('');
-        
-        const readline = require('readline');
-        const rl = readline.createInterface({
-          input: process.stdin,
-          output: process.stdout
-        });
-        
-        const answer = await new Promise(resolve => {
-          rl.question('Установить модель сейчас? (y/n): ', resolve);
-        });
-        rl.close();
-        
-        if (answer.toLowerCase() === 'y') {
-          info('Устанавливаю модель (это займёт несколько минут)...');
-          try {
-            execSync('ollama pull qwen2.5:7b', { stdio: 'inherit' });
-            success('Модель установлена');
-          } catch {
-            error('Ошибка установки модели');
-            info('Вы можете установить её позже: ollama pull qwen2.5:7b');
-          }
+      modelsOutput = execSync('ollama list', { stdio: 'pipe' }).toString();
+    } catch {
+      // Если команда не сработала, пробуем через PowerShell на Windows
+      if (os.platform() === 'win32') {
+        try {
+          modelsOutput = execSync('powershell -Command "ollama list"', { stdio: 'pipe' }).toString();
+        } catch {
+          warning('Не удалось получить список моделей');
         }
       }
-    } catch {
-      warning('Не удалось получить список моделей');
+    }
+    
+    if (modelsOutput && modelsOutput.includes('qwen2.5')) {
+      success('Модель qwen2.5 уже установлена');
+    } else {
+      warning('Модель qwen2.5 не найдена');
+      info('');
+      info('Рекомендуется установить модель для работы:');
+      info('  ollama pull qwen2.5:7b');
+      info('');
+      info('Размер: ~4.7 GB');
+      info('');
+      
+      const readline = require('readline');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+      
+      const answer = await new Promise(resolve => {
+        rl.question('Установить модель сейчас? (y/n): ', resolve);
+      });
+      rl.close();
+      
+      if (answer.toLowerCase() === 'y') {
+        info('Устанавливаю модель (это займёт несколько минут)...');
+        try {
+          execSync('ollama pull qwen2.5:7b', { stdio: 'inherit' });
+          success('Модель установлена');
+        } catch {
+          error('Ошибка установки модели');
+          info('Вы можете установить её позже: ollama pull qwen2.5:7b');
+        }
+      }
     }
   }
 

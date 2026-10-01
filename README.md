@@ -11,33 +11,81 @@
 - 🔒 **Полностью приватно** — всё локально, без интернета
 - ⚡ **Без цензуры** — выполняет любые запросы
 
-## 🚀 Установка
+## 🚀 Быстрый старт
 
-### 1. Ollama (нейросеть)
+### 1. Установите Node.js
 
-```bash
-# Linux
-curl -fsSL https://ollama.com/install.sh | sh
+Скачайте с https://nodejs.org/ (версия LTS)
 
-# Загрузить модель
+### 2. Установите Ollama
+
+Скачайте с https://ollama.com/download
+
+### 3. Запустите установщик
+
+Откройте командную строку в папке проекта:
+
+```cmd
+node installer.js
+```
+
+Установщик:
+- ✅ Установит зависимости
+- ✅ Соберёт проект
+- ✅ Проверит Ollama
+- ✅ Предложит установить модель
+- ✅ Создаст ярлык на рабочем столе
+
+### 4. Запустите
+
+Дважды кликните на ярлык **RU AI Studio** на рабочем столе.
+
+---
+
+## 📦 Ручная установка
+
+### 1. Установите зависимости
+
+```cmd
+npm install
+```
+
+### 2. Соберите проект
+
+```cmd
+npm run build
+```
+
+### 3. Загрузите модель
+
+```cmd
 ollama pull qwen2.5:7b
+```
 
-# Запустить
+### 4. Запустите
+
+**Вариант 1: Через скрипт**
+```cmd
+start.bat
+```
+
+**Вариант 2: Вручную**
+
+Откройте **два** окна командной строки:
+
+Окно 1 — Ollama:
+```cmd
 ollama serve
 ```
 
-### 2. Локальный сервер (системные команды)
-
-```bash
-# В папке проекта
+Окно 2 — Сервер:
+```cmd
 node server.js
 ```
 
-Сервер даёт AI доступ к файлам, командам, управлению ПК.
+Затем откройте: http://localhost:3001
 
-### 3. Открыть интерфейс
-
-Откройте `dist/index.html` в Chrome/Edge.
+---
 
 ## 🎤 Голос
 
@@ -64,19 +112,12 @@ AI увидит скриншот и сможет его описать.
 
 Для работы нужна дополнительная настройка:
 
-```bash
+```cmd
 # 1. Установить puppeteer
 npm install puppeteer
 
 # 2. Запустить Chrome с отладкой
-# Windows:
 "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
-
-# macOS:
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
-
-# Linux:
-google-chrome --remote-debugging-port=9222
 ```
 
 После этого AI сможет:
@@ -132,3 +173,9 @@ google-chrome --remote-debugging-port=9222
 ### Автоматизация браузера не работает
 - Установите puppeteer: `npm install puppeteer`
 - Запустите Chrome: `chrome --remote-debugging-port=9222`
+
+---
+
+**Платформа:** Windows  
+**Версия:** 1.0  
+**Документация:** [INSTALL.md](INSTALL.md)
