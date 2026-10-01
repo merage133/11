@@ -365,7 +365,7 @@ server.listen(PORT, HOST, () => {
   console.log('================================================');
   console.log('     RU AI Studio - Local Server');
   console.log('------------------------------------------------');
-  console.log(`  [OK] Server running: http://${HOST}:${PORT}`);
+  console.log('  [OK] Server running: http://' + HOST + ':' + PORT);
   console.log('');
   console.log('  Available tools:');
   console.log('  - File system (read/write/list)');
@@ -385,7 +385,7 @@ server.listen(PORT, HOST, () => {
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`[ERROR] Port ${PORT} is already in use. Close another server or change PORT.`);
+    console.error('[ERROR] Port ' + PORT + ' is already in use. Close another server or change PORT.');
   } else {
     console.error('[ERROR] Server error:', err);
   }

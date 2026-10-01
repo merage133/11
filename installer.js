@@ -1,17 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * RU AI Studio — Установщик
+ * RU AI Studio - Installer
  * 
- * Запуск: node installer.js
- * 
- * Что делает:
- * 1. Проверяет Node.js
- * 2. Устанавливает npm зависимости
- * 3. Проверяет наличие Ollama
- * 4. Предлагает установить модель
- * 5. Создаёт ярлык на рабочем столе
- * 6. Проверяет работоспособность
+ * Run: node installer.js
  */
 
 const fs = require('fs');
@@ -29,15 +21,11 @@ const COLORS = {
   cyan: '\x1b[36m',
 };
 
-function log(color, message) {
-  console.log(`${color}${message}${COLORS.reset}`);
-}
-
-function success(msg) { log(COLORS.green, `[OK] ${msg}`); }
-function error(msg) { log(COLORS.red, `[ERROR] ${msg}`); }
-function warning(msg) { log(COLORS.yellow, `[WARN] ${msg}`); }
-function info(msg) { log(COLORS.cyan, `[INFO] ${msg}`); }
-function step(msg) { log(COLORS.blue, `\n=== ${msg} ===`); }
+function success(msg) { console.log(COLORS.green + '[OK] ' + msg + COLORS.reset); }
+function error(msg) { console.log(COLORS.red + '[ERROR] ' + msg + COLORS.reset); }
+function warning(msg) { console.log(COLORS.yellow + '[WARN] ' + msg + COLORS.reset); }
+function info(msg) { console.log(COLORS.cyan + '[INFO] ' + msg + COLORS.reset); }
+function step(msg) { console.log('\n' + COLORS.blue + '=== ' + msg + ' ===' + COLORS.reset); }
 
 function checkCommand(cmd) {
   try {
@@ -51,7 +39,6 @@ function checkCommand(cmd) {
 function getDesktopPath() {
   const home = os.homedir();
   if (os.platform() === 'win32') {
-    // Windows: проверяем несколько вариантов
     const possiblePaths = [
       path.join(home, 'Desktop'),
       path.join(home, 'OneDrive', 'Desktop'),
@@ -64,7 +51,6 @@ function getDesktopPath() {
         return p;
       }
     }
-    // Если ни один не найден, создаём Desktop
     const desktop = path.join(home, 'Desktop');
     if (!fs.existsSync(desktop)) {
       fs.mkdirSync(desktop, { recursive: true });
@@ -73,7 +59,6 @@ function getDesktopPath() {
   } else if (os.platform() === 'darwin') {
     return path.join(home, 'Desktop');
   } else {
-    // Linux — проверяем существование папки
     const ruDesktop = path.join(home, 'Рабочий стол');
     const enDesktop = path.join(home, 'Desktop');
     
@@ -82,7 +67,6 @@ function getDesktopPath() {
     } else if (fs.existsSync(enDesktop)) {
       return enDesktop;
     } else {
-      // Если ни одной нет, создаём Desktop
       return enDesktop;
     }
   }
@@ -91,16 +75,13 @@ function getDesktopPath() {
 function createWindowsShortcut(projectPath) {
   const desktop = getDesktopPath();
   
-  // Создаём папку Desktop если не существует
   if (!fs.existsSync(desktop)) {
     fs.mkdirSync(desktop, { recursive: true });
   }
   
   const shortcutPath = path.join(desktop, 'RU AI Studio.bat');
   
-  // Создаём bat файл для рабочего стола, который запускает start.bat из папки проекта
   const batContent = `@echo off
-chcp 65001 >nul
 title RU AI Studio
 cd /d "${projectPath}"
 call start.bat
@@ -114,13 +95,11 @@ function createLinuxShortcut(projectPath) {
   const desktop = getDesktopPath();
   const shortcutPath = path.join(desktop, 'ru-ai-studio.sh');
   
-  // Просто копируем start.sh на рабочий стол
   const startShPath = path.join(projectPath, 'start.sh');
   if (fs.existsSync(startShPath)) {
     fs.copyFileSync(startShPath, shortcutPath);
     fs.chmodSync(shortcutPath, 0o755);
   } else {
-    // Если start.sh нет, создаём простой ярлык
     const shContent = `#!/bin/bash
 cd "${projectPath}"
 bash start.sh
@@ -135,13 +114,11 @@ function createMacShortcut(projectPath) {
   const desktop = getDesktopPath();
   const shortcutPath = path.join(desktop, 'RU AI Studio.command');
   
-  // Просто копируем start.sh на рабочий стол (переименовываем в .command для macOS)
   const startShPath = path.join(projectPath, 'start.sh');
   if (fs.existsSync(startShPath)) {
     fs.copyFileSync(startShPath, shortcutPath);
     fs.chmodSync(shortcutPath, 0o755);
   } else {
-    // Если start.sh нет, создаём простой ярлык
     const shContent = `#!/bin/bash
 cd "${projectPath}"
 bash start.sh
@@ -154,51 +131,50 @@ bash start.sh
 
 async function main() {
   console.log('');
-  log(COLORS.bright + COLORS.cyan, '================================================');
-  log(COLORS.bright + COLORS.cyan, '     RU AI Studio - Installer');
-  log(COLORS.bright + COLORS.cyan, '================================================');
+  console.log(COLORS.bright + COLORS.cyan + '================================================');
+  console.log('     RU AI Studio - Installer');
+  console.log('================================================' + COLORS.reset);
   console.log('');
 
   const projectPath = process.cwd();
-  info(`Путь проекта: ${projectPath}`);
+  info('Project path: ' + projectPath);
 
-  // 1. Проверяем Node.js
-  step('Проверка Node.js...');
+  // 1. Check Node.js
+  step('Checking Node.js...');
   if (!checkCommand('node --version')) {
-    error('Node.js не установлен!');
-    info('Скачайте с: https://nodejs.org/');
+    error('Node.js not installed!');
+    info('Download from: https://nodejs.org/');
     process.exit(1);
   }
   const nodeVersion = execSync('node --version').toString().trim();
-  success(`Node.js ${nodeVersion}`);
+  success('Node.js ' + nodeVersion);
 
-  // 2. Устанавливаем зависимости
-  step('Установка npm зависимостей...');
+  // 2. Install dependencies
+  step('Installing npm dependencies...');
   try {
     execSync('npm install', { stdio: 'inherit' });
-    success('Зависимости установлены');
+    success('Dependencies installed');
   } catch {
-    error('Ошибка установки зависимостей');
+    error('Failed to install dependencies');
     process.exit(1);
   }
 
-  // 3. Собираем проект
-  step('Сборка проекта...');
+  // 3. Build project
+  step('Building project...');
   try {
     execSync('npm run build', { stdio: 'inherit' });
-    success('Проект собран');
+    success('Project built');
   } catch {
-    error('Ошибка сборки');
+    error('Build failed');
     process.exit(1);
   }
 
-  // 4. Проверяем Ollama
-  step('Проверка Ollama...');
+  // 4. Check Ollama
+  step('Checking Ollama...');
   let ollamaInstalled = false;
   let ollamaVersion = '';
   
   if (os.platform() === 'win32') {
-    // Windows: используем where для проверки
     try {
       const whereResult = execSync('where ollama', { stdio: 'pipe' }).toString().trim();
       if (whereResult) {
@@ -206,65 +182,63 @@ async function main() {
         try {
           ollamaVersion = execSync('ollama --version', { stdio: 'pipe' }).toString().trim();
         } catch {
-          ollamaVersion = 'установлена';
+          ollamaVersion = 'installed';
         }
       }
     } catch {
       ollamaInstalled = false;
     }
   } else {
-    // Linux/macOS: используем command -v
     ollamaInstalled = checkCommand('command -v ollama');
     if (ollamaInstalled) {
       try {
         ollamaVersion = execSync('ollama --version', { stdio: 'pipe' }).toString().trim();
       } catch {
-        ollamaVersion = 'установлена';
+        ollamaVersion = 'installed';
       }
     }
   }
   
   if (!ollamaInstalled) {
-    warning('Ollama не установлена!');
+    warning('Ollama not installed!');
     info('');
-    info('Установите Ollama:');
+    info('Install Ollama:');
     if (os.platform() === 'win32') {
-      info('  1. Скачайте с: https://ollama.com/download');
-      info('  2. Запустите установщик');
-      info('  3. Перезапустите этот установщик');
+      info('  1. Download: https://ollama.com/download');
+      info('  2. Run installer');
+      info('  3. Run this installer again');
     } else {
       info('  curl -fsSL https://ollama.com/install.sh | sh');
     }
     info('');
-    info('После установки запустите установщик снова.');
+    info('After installation, run installer again.');
   } else {
-    success(`Ollama ${ollamaVersion}`);
+    success('Ollama ' + ollamaVersion);
 
-    // 5. Предлагаем установить модель
-    step('Проверка моделей...');
+    // 5. Check models
+    step('Checking models...');
     let modelsOutput = '';
     try {
       modelsOutput = execSync('ollama list', { stdio: 'pipe' }).toString();
     } catch {
-      // Если команда не сработала, пробуем через PowerShell на Windows
       if (os.platform() === 'win32') {
         try {
           modelsOutput = execSync('powershell -Command "ollama list"', { stdio: 'pipe' }).toString();
         } catch {
-          warning('Не удалось получить список моделей');
+          warning('Failed to get model list');
         }
       }
     }
     
     if (modelsOutput && modelsOutput.includes('qwen2.5')) {
-      success('Модель qwen2.5 уже установлена');
+      success('Model qwen2.5 already installed');
     } else {
-      warning('Модель qwen2.5 не найдена');
+      warning('Model qwen2.5 not found');
       info('');
-      info('Рекомендуется установить модель для работы:');
+      info('Recommended model for work:');
       info('  ollama pull qwen2.5:7b');
       info('');
-      info('Размер: ~4.7 GB');
+      info('Size: ~4.7 GB');
       info('');
       
       const readline = require('readline');
@@ -274,25 +248,25 @@ async function main() {
       });
       
       const answer = await new Promise(resolve => {
-        rl.question('Установить модель сейчас? (y/n): ', resolve);
+        rl.question('Install model now? (y/n): ', resolve);
       });
       rl.close();
       
       if (answer.toLowerCase() === 'y') {
-        info('Устанавливаю модель (это займёт несколько минут)...');
+        info('Installing model (this will take a few minutes)...');
         try {
           execSync('ollama pull qwen2.5:7b', { stdio: 'inherit' });
-          success('Модель установлена');
+          success('Model installed');
         } catch {
-          error('Ошибка установки модели');
-          info('Вы можете установить её позже: ollama pull qwen2.5:7b');
+          error('Failed to install model');
+          info('You can install it later: ollama pull qwen2.5:7b');
         }
       }
     }
   }
 
-  // 6. Создаём ярлык на рабочем столе
-  step('Создание ярлыка на рабочем столе...');
+  // 6. Create desktop shortcut
+  step('Creating desktop shortcut...');
   try {
     let shortcutPath;
     if (os.platform() === 'win32') {
@@ -302,22 +276,19 @@ async function main() {
     } else {
       shortcutPath = createLinuxShortcut(projectPath);
     }
-    success(`Ярлык создан: ${shortcutPath}`);
+    success('Shortcut created: ' + shortcutPath);
   } catch (err) {
-    error(`Не удалось создать ярлык: ${err.message}`);
+    error('Failed to create shortcut: ' + err.message);
   }
 
-  // 7. Проверяем работоспособность
-  step('Проверка работоспособности...');
+  // 7. Check server
+  step('Checking server...');
   
-  // Запускаем сервер в фоне
-  info('Запускаю сервер для проверки...');
+  info('Starting server for test...');
   const serverProcess = exec('node server.js', { cwd: projectPath });
   
-  // Ждём 3 секунды
   await new Promise(resolve => setTimeout(resolve, 3000));
   
-  // Проверяем сервер с помощью Node.js (кроссплатформенно)
   try {
     const http = require('http');
     await new Promise((resolve, reject) => {
@@ -328,38 +299,37 @@ async function main() {
           try {
             const health = JSON.parse(data);
             if (health.status === 'ok') {
-              success('Сервер работает');
+              success('Server is working');
             } else {
-              warning('Сервер ответил, но статус не ok');
+              warning('Server responded, but status is not ok');
             }
           } catch {
-            warning('Сервер ответил, но не удалось распарсить ответ');
+            warning('Server responded, but failed to parse response');
           }
           resolve();
         });
       });
       req.on('error', () => {
-        warning('Сервер не отвечает (возможно, порт занят)');
+        warning('Server not responding (port may be busy)');
         resolve();
       });
       req.setTimeout(3000, () => {
         req.destroy();
-        warning('Сервер не отвечает (таймаут)');
+        warning('Server not responding (timeout)');
         resolve();
       });
     });
   } catch {
-    warning('Не удалось проверить сервер');
+    warning('Failed to check server');
   }
   
-  // Останавливаем сервер
   serverProcess.kill();
 
-  // Финальное сообщение
+  // Final message
   console.log('');
-  log(COLORS.bright + COLORS.green, '================================================');
-  log(COLORS.bright + COLORS.green, '     Installation completed successfully!');
-  log(COLORS.bright + COLORS.green, '================================================');
+  console.log(COLORS.bright + COLORS.green + '================================================');
+  console.log('     Installation completed successfully!');
+  console.log('================================================' + COLORS.reset);
   console.log('');
   success('Shortcut created on desktop');
   info('');
@@ -375,6 +345,6 @@ async function main() {
 }
 
 main().catch(err => {
-  error(`Критическая ошибка: ${err.message}`);
+  error('Critical error: ' + err.message);
   process.exit(1);
 });
