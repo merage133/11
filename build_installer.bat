@@ -1,73 +1,71 @@
 @echo off
-chcp 65001 >nul
-title RU AI Studio — Создание установщика
+chcp 1251 >nul
+title RU AI Studio - Build Installer
 color 0B
 
 echo.
-echo ╔════════════════════════════════════════════════════════════╗
-echo ║                                                            ║
-echo ║     RU AI Studio — Создание установщика Windows           ║
-echo ║                                                            ║
-echo ╚════════════════════════════════════════════════════════════╝
+echo ================================================================
+echo     RU AI Studio - Creating Windows Installer
+echo ================================================================
 echo.
 
-:: Переходим в папку проекта
+:: Go to project folder
 cd /d "%~dp0"
 
 :: ============================================
-:: ШАГ 1: Проверка Node.js
+:: STEP 1: Check Node.js
 :: ============================================
-echo [1/4] Проверка Node.js...
+echo [1/4] Checking Node.js...
 where node >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo  ❌ Node.js не найден!
+    echo  [ERROR] Node.js not found!
     echo.
-    echo  Скачайте и установите: https://nodejs.org/
+    echo  Download from: https://nodejs.org/
     echo.
     pause
     exit /b 1
 )
 for /f "tokens=*" %%i in ('node --version') do set NODE_VER=%%i
-echo  ✅ Node.js %NODE_VER%
+echo  [OK] Node.js %NODE_VER%
 
 :: ============================================
-:: ШАГ 2: Установка зависимостей
+:: STEP 2: Install dependencies
 :: ============================================
 echo.
-echo [2/4] Установка зависимостей...
+echo [2/4] Installing dependencies...
 call npm install
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo  ❌ Ошибка установки зависимостей!
+    echo  [ERROR] Failed to install dependencies!
     echo.
     pause
     exit /b 1
 )
-echo  ✅ Зависимости установлены
+echo  [OK] Dependencies installed
 
 :: ============================================
-:: ШАГ 3: Сборка проекта
+:: STEP 3: Build project
 :: ============================================
 echo.
-echo [3/4] Сборка проекта...
+echo [3/4] Building project...
 call npm run build
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo  ❌ Ошибка сборки!
+    echo  [ERROR] Build failed!
     echo.
     pause
     exit /b 1
 )
-echo  ✅ Проект собран
+echo  [OK] Project built
 
 :: ============================================
-:: ШАГ 4: Компиляция установщика
+:: STEP 4: Compile installer
 :: ============================================
 echo.
-echo [4/4] Компиляция установщика...
+echo [4/4] Compiling installer...
 
-:: Проверяем наличие Inno Setup
+:: Check for Inno Setup
 set ISCC_PATH=C:\Program Files (x86)\Inno Setup 6\ISCC.exe
 if not exist "%ISCC_PATH%" (
     set ISCC_PATH=C:\Program Files\Inno Setup 6\ISCC.exe
@@ -75,44 +73,42 @@ if not exist "%ISCC_PATH%" (
 
 if not exist "%ISCC_PATH%" (
     echo.
-    echo  ❌ Inno Setup не найден!
+    echo  [ERROR] Inno Setup not found!
     echo.
-    echo  Скачайте и установите: https://jrsoftware.org/isdl.php
+    echo  Download from: https://jrsoftware.org/isdl.php
     echo.
-    echo  После установки запустите этот скрипт снова.
+    echo  After installation, run this script again.
     echo.
     pause
     exit /b 1
 )
 
-:: Создаём папку для выходных файлов
+:: Create output folder
 if not exist "installer_output" mkdir installer_output
 
-:: Компилируем установщик
+:: Compile installer
 "%ISCC_PATH%" setup.iss
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo  ❌ Ошибка компиляции установщика!
+    echo  [ERROR] Installer compilation failed!
     echo.
     pause
     exit /b 1
 )
 
 :: ============================================
-:: Завершение
+:: Done
 :: ============================================
 echo.
-echo ╔════════════════════════════════════════════════════════════╗
-echo ║                                                            ║
-echo ║     ✅ Установщик успешно создан!                         ║
-echo ║                                                            ║
-echo ║     Файл: installer_output\RU_AI_Studio_Setup_1.0.0.exe   ║
-echo ║                                                            ║
-echo ╚════════════════════════════════════════════════════════════╝
+echo ================================================================
+echo     [OK] Installer created successfully!
+echo.
+echo     File: installer_output\RU_AI_Studio_Setup_1.0.0.exe
+echo ================================================================
 echo.
 
-:: Открываем папку с установщиком
-explorer installer_output
+:: Open output folder
+%SystemRoot%\explorer.exe installer_output
 
 pause

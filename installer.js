@@ -33,11 +33,11 @@ function log(color, message) {
   console.log(`${color}${message}${COLORS.reset}`);
 }
 
-function success(msg) { log(COLORS.green, `✅ ${msg}`); }
-function error(msg) { log(COLORS.red, `❌ ${msg}`); }
-function warning(msg) { log(COLORS.yellow, `⚠️  ${msg}`); }
-function info(msg) { log(COLORS.cyan, `ℹ️  ${msg}`); }
-function step(msg) { log(COLORS.blue, `\n📦 ${msg}`); }
+function success(msg) { log(COLORS.green, `[OK] ${msg}`); }
+function error(msg) { log(COLORS.red, `[ERROR] ${msg}`); }
+function warning(msg) { log(COLORS.yellow, `[WARN] ${msg}`); }
+function info(msg) { log(COLORS.cyan, `[INFO] ${msg}`); }
+function step(msg) { log(COLORS.blue, `\n=== ${msg} ===`); }
 
 function checkCommand(cmd) {
   try {
@@ -154,9 +154,9 @@ bash start.sh
 
 async function main() {
   console.log('');
-  log(COLORS.bright + COLORS.cyan, '╔══════════════════════════════════════════════╗');
-  log(COLORS.bright + COLORS.cyan, '║     RU AI Studio — Установщик               ║');
-  log(COLORS.bright + COLORS.cyan, '╚══════════════════════════════════════════════╝');
+  log(COLORS.bright + COLORS.cyan, '================================================');
+  log(COLORS.bright + COLORS.cyan, '     RU AI Studio - Installer');
+  log(COLORS.bright + COLORS.cyan, '================================================');
   console.log('');
 
   const projectPath = process.cwd();
@@ -357,20 +357,20 @@ async function main() {
 
   // Финальное сообщение
   console.log('');
-  log(COLORS.bright + COLORS.green, '╔══════════════════════════════════════════════╗');
-  log(COLORS.bright + COLORS.green, '║     ✅ Установка завершена!                 ║');
-  log(COLORS.bright + COLORS.green, '╚══════════════════════════════════════════════╝');
+  log(COLORS.bright + COLORS.green, '================================================');
+  log(COLORS.bright + COLORS.green, '     Installation completed successfully!');
+  log(COLORS.bright + COLORS.green, '================================================');
   console.log('');
-  success('Ярлык создан на рабочем столе');
+  success('Shortcut created on desktop');
   info('');
-  info('Для запуска:');
-  info('  1. Дважды кликните на ярлык "RU AI Studio"');
-  info('  2. Или запустите вручную:');
+  info('To launch:');
+  info('  1. Double-click "RU AI Studio" shortcut on desktop');
+  info('  2. Or run manually:');
   info('     ollama serve');
   info('     node server.js');
-  info('     Откройте dist/index.html в браузере');
+  info('     Open dist/index.html in browser');
   info('');
-  info('Документация: INSTALL.md');
+  info('Documentation: INSTALL.md');
   console.log('');
 }
 

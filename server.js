@@ -362,32 +362,32 @@ const server = http.createServer(handleRequest);
 
 server.listen(PORT, HOST, () => {
   console.log('');
-  console.log('╔══════════════════════════════════════════════╗');
-  console.log('║     RU AI Studio — Локальный сервер          ║');
-  console.log('╠══════════════════════════════════════════════╣');
-  console.log(`║  ✅ Сервер запущен: http://${HOST}:${PORT}       ║`);
-  console.log('║                                              ║');
-  console.log('║  Доступные инструменты:                      ║');
-  console.log('║  • Файловая система (чтение/запись/список)   ║');
-  console.log('║  • Выполнение команд                         ║');
-  console.log('║  • Выключение / перезагрузка ПК              ║');
-  console.log('║  • Системная информация                      ║');
-  console.log('║  • Автоматизация браузера (puppeteer)        ║');
-  console.log('║                                              ║');
-  console.log('║  Для автоматизации браузера:                 ║');
-  console.log('║  1. npm install puppeteer                    ║');
-  console.log('║  2. chrome --remote-debugging-port=9222      ║');
-  console.log('║                                              ║');
-  console.log('║  Нажмите Ctrl+C для остановки                ║');
-  console.log('╚══════════════════════════════════════════════╝');
+  console.log('================================================');
+  console.log('     RU AI Studio - Local Server');
+  console.log('------------------------------------------------');
+  console.log(`  [OK] Server running: http://${HOST}:${PORT}`);
+  console.log('');
+  console.log('  Available tools:');
+  console.log('  - File system (read/write/list)');
+  console.log('  - Execute commands');
+  console.log('  - Shutdown / restart PC');
+  console.log('  - System information');
+  console.log('  - Browser automation (puppeteer)');
+  console.log('');
+  console.log('  For browser automation:');
+  console.log('  1. npm install puppeteer');
+  console.log('  2. chrome --remote-debugging-port=9222');
+  console.log('');
+  console.log('  Press Ctrl+C to stop');
+  console.log('================================================');
   console.log('');
 });
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`❌ Порт ${PORT} уже занят. Закройте другой сервер или измените PORT.`);
+    console.error(`[ERROR] Port ${PORT} is already in use. Close another server or change PORT.`);
   } else {
-    console.error('❌ Ошибка сервера:', err);
+    console.error('[ERROR] Server error:', err);
   }
   process.exit(1);
 });
