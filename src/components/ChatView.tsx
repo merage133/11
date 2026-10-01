@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, Square, Copy, Check, Bot, User, Paperclip, Mic, MicOff, Monitor, Image } from 'lucide-react';
+import { Send, Square, Copy, Check, Bot, User, Paperclip, Mic, MicOff, Monitor } from 'lucide-react';
 import { Message } from '../types';
 import { useVoice, captureScreen } from '../hooks/useVoice';
 
@@ -36,8 +36,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     toggleListening,
     isSupported: voiceSupported,
     error: voiceError,
-  } = useVoice((text) => {
-    setInput((prev) => prev + text);
+  } = useVoice((finalText) => {
+    setInput((prev) => prev + finalText);
   });
 
   useEffect(() => {
@@ -53,10 +53,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const text = (input + (isListening ? interimTranscript : '')).trim();
+    const text = input.trim();
     if (!text || isLoading) return;
     onSendMessage(text);
     setInput('');
+    // Если голос активен — не останавливаем, пусть продолжает слушать
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -275,8 +276,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </button>
               <textarea
                 ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
+                value={input + (isListening && interimTranscript ? ' ' + interimTranscript : '')}
+                onChange={(e) => {
+                  // Если голос активен, не даём менять промежуточный текст
+                  if (isListening && interimTranscript) {
+                    const baseText = input;
+                    const newValue = e.target.value;
+                    if (newValue.startsWith(baseText)) {
+                      setInput(newValue.replace(interimTranscript, '').trim());
+                    }
+                  } else {
+                    setInput(e.target.value);
+                  }
+                }}
                 onKeyDown={handleKeyDown}
                 placeholder={isListening ? '🎤 Говорите...' : 'Спросите что-нибудь... или нажмите 🎤'}
                 className="flex-1 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none min-h-[36px] max-h-[200px] py-1.5"
@@ -284,11 +296,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
               />
               {/* Voice indicator */}
               {isListening && (
-                <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-red/10 border border-red/20">
+                <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-red/10 border border-red/20 shrink-0">
                   <div className="w-2 h-2 bg-red rounded-full animate-pulse-dot" />
-                  <span className="text-xs text-red">
-                    {interimTranscript ? interimTranscript.slice(0, 30) + '...' : 'Слушаю...'}
-                  </span>
+                  <span className="text-xs text-red">Слушаю...</span>
                 </div>
               )}
               {/* Voice button */}

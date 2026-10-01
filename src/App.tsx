@@ -61,6 +61,18 @@ export default function App() {
   const [streamingContent, setStreamingContent] = useState('');
   const [statusText, setStatusText] = useState('');
   const abortRef = useRef<AbortController | null>(null);
+  const streamingContentRef = useRef('');
+  const sessionsRef = useRef(sessions);
+  
+  // Обновляем ref при изменении streamingContent
+  useEffect(() => {
+    streamingContentRef.current = streamingContent;
+  }, [streamingContent]);
+  
+  // Обновляем ref при изменении sessions
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
 
   useEffect(() => {
     localStorage.setItem('ru-ai-studio-settings', JSON.stringify(settings));
@@ -157,8 +169,8 @@ export default function App() {
       abortRef.current = controller;
 
       try {
-        // Получаем текущую историю
-        const currentSession = sessions.find((s) => s.id === sessionId);
+        // Получаем текущую историю из ref (всегда актуальное)
+        const currentSession = sessionsRef.current.find((s) => s.id === sessionId);
         const history = currentSession?.messages || [];
 
         // Строим контекст с файлами
@@ -276,7 +288,7 @@ export default function App() {
         const assistantMessage: Message = {
           id: generateId(),
           role: 'assistant',
-          content: finalResponse || streamingContent,
+          content: finalResponse || streamingContentRef.current,
           timestamp: new Date(),
           model: settings.selectedModel,
         };
@@ -311,7 +323,7 @@ export default function App() {
         abortRef.current = null;
       }
     },
-    [activeSessionId, sessions, settings, allFiles, attachedFileIds, streamingContent, addMessageToSession]
+    [activeSessionId, settings, allFiles, attachedFileIds, addMessageToSession]
   );
 
   const handleStop = useCallback(() => {
@@ -340,21 +352,83 @@ export default function App() {
     );
   }, []);
 
-  const handleScreenshot = useCallback((base64: string) => {
+  const handleScreenshot = useCallback(async (base64: string) => {
     // Добавляем скриншот как сообщение пользователя
-    if (activeSessionId) {
-      const msg: Message = {
+    let sessionId = activeSessionId;
+    
+    if (!sessionId) {
+      const newSession: ChatSession = {
         id: generateId(),
-        role: 'user',
-        content: '[Скриншот экрана]',
-        timestamp: new Date(),
-        image: base64,
+        title: 'Скриншот экрана',
+        messages: [],
+        createdAt: new Date(),
+        model: settings.selectedModel,
       };
-      addMessageToSession(activeSessionId, msg);
-      // Отправляем с указанием что это скриншот
-      handleSendMessage('Пользователь сделал скриншот экрана. Посмотри на него и опиши что видишь. Скриншот прикреплён к сообщению выше.');
+      setSessions((prev) => [newSession, ...prev]);
+      sessionId = newSession.id;
+      setActiveSessionId(newSession.id);
     }
-  }, [activeSessionId, addMessageToSession, handleSendMessage]);
+
+    const msg: Message = {
+      id: generateId(),
+      role: 'user',
+      content: 'Пользователь сделал скриншот экрана. Посмотри на него и опиши что видишь.',
+      timestamp: new Date(),
+      image: base64,
+    };
+    addMessageToSession(sessionId, msg);
+    
+    // Небольшая задержка чтобы состояние обновилось
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Отправляем запрос к AI напрямую (не через handleSendMessage чтобы избежать stale closure)
+    setIsLoading(true);
+    setStreamingContent('');
+    setStatusText('Анализирую скриншот...');
+    
+    const controller = new AbortController();
+    abortRef.current = controller;
+    
+    try {
+      const apiMessages = [
+        { role: 'system', content: settings.systemPrompt },
+        { role: 'user', content: msg.content },
+      ];
+      
+      const response = await sendOllamaMessage(
+        settings.ollamaUrl,
+        settings.selectedModel,
+        apiMessages,
+        settings.temperature,
+        (chunk) => setStreamingContent((prev) => prev + chunk),
+        controller.signal
+      );
+      
+      const assistantMessage: Message = {
+        id: generateId(),
+        role: 'assistant',
+        content: response || streamingContentRef.current,
+        timestamp: new Date(),
+        model: settings.selectedModel,
+      };
+      
+      addMessageToSession(sessionId, assistantMessage);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Ошибка');
+      const errorMessage: Message = {
+        id: generateId(),
+        role: 'assistant',
+        content: `⚠️ Ошибка: ${err.message}`,
+        timestamp: new Date(),
+      };
+      addMessageToSession(sessionId, errorMessage);
+    } finally {
+      setIsLoading(false);
+      setStreamingContent('');
+      setStatusText('');
+      abortRef.current = null;
+    }
+  }, [activeSessionId, addMessageToSession, settings]);
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-bg-primary">

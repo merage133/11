@@ -103,11 +103,8 @@ export function useVoice(onFinalTranscript?: (text: string) => void): UseVoiceRe
       }
 
       if (finalText) {
-        setTranscript((prev) => {
-          const newTranscript = prev + finalText;
-          onFinalTranscript?.(newTranscript);
-          return newTranscript;
-        });
+        setTranscript((prev) => prev + finalText);
+        onFinalTranscript?.(finalText);
       }
       setInterimTranscript(interimText);
     };
