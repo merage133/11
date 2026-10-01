@@ -65,23 +65,70 @@ echo  [OK] Project built
 echo.
 echo [4/4] Compiling installer...
 
-:: Check for Inno Setup
-set ISCC_PATH=C:\Program Files (x86)\Inno Setup 6\ISCC.exe
-if not exist "%ISCC_PATH%" (
+:: Try to find Inno Setup in multiple locations
+set ISCC_PATH=
+
+:: Check common installation paths
+if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
+    set ISCC_PATH=C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+    goto :found_iscc
+)
+if exist "C:\Program Files\Inno Setup 6\ISCC.exe" (
     set ISCC_PATH=C:\Program Files\Inno Setup 6\ISCC.exe
+    goto :found_iscc
+)
+if exist "C:\Program Files (x86)\Inno Setup 5\ISCC.exe" (
+    set ISCC_PATH=C:\Program Files (x86)\Inno Setup 5\ISCC.exe
+    goto :found_iscc
+)
+if exist "C:\Program Files\Inno Setup 5\ISCC.exe" (
+    set ISCC_PATH=C:\Program Files\Inno Setup 5\ISCC.exe
+    goto :found_iscc
 )
 
-if not exist "%ISCC_PATH%" (
-    echo.
-    echo  [ERROR] Inno Setup not found!
-    echo.
-    echo  Download from: https://jrsoftware.org/isdl.php
-    echo.
-    echo  After installation, run this script again.
-    echo.
-    pause
-    exit /b 1
+:: Try to find via registry (64-bit)
+for /f "tokens=2*" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup version 6*" /v InstallLocation 2^>nul ^| findstr "REG_SZ"') do (
+    if exist "%%bISCC.exe" (
+        set ISCC_PATH=%%bISCC.exe
+        goto :found_iscc
+    )
 )
+
+:: Try to find via registry (32-bit on 64-bit Windows)
+for /f "tokens=2*" %%a in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup version 6*" /v InstallLocation 2^>nul ^| findstr "REG_SZ"') do (
+    if exist "%%bISCC.exe" (
+        set ISCC_PATH=%%bISCC.exe
+        goto :found_iscc
+    )
+)
+
+:: Try to find via where command
+where ISCC.exe >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    for /f "tokens=*" %%i in ('where ISCC.exe') do (
+        set ISCC_PATH=%%i
+        goto :found_iscc
+    )
+)
+
+:not_found
+echo.
+echo  [ERROR] Inno Setup not found!
+echo.
+echo  Inno Setup is required to create the Windows installer (.exe).
+echo.
+echo  Download from: https://jrsoftware.org/isdl.php
+echo.
+echo  After installation, run this script again.
+echo.
+echo  NOTE: You can still use the program without installer!
+echo  Just run: start.bat
+echo.
+pause
+exit /b 1
+
+:found_iscc
+echo  [OK] Inno Setup found: %ISCC_PATH%
 
 :: Create output folder
 if not exist "installer_output" mkdir installer_output
