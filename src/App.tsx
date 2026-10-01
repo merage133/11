@@ -1,7 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Menu } from 'lucide-react';
 import { Message, ChatSession, FileNode, AppSettings } from './types';
-import { DEFAULT_SETTINGS, sendOllamaMessage, checkOllamaConnection } from './config';
+import { DEFAULT_SETTINGS, sendOllamaMessage, sendOllamaMessageWithTools, checkOllamaConnection } from './config';
+import { TOOL_DEFINITIONS, executeTool } from './tools';
+import { captureScreen } from './hooks/useVoice';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -57,6 +59,7 @@ export default function App() {
   const [allFiles, setAllFiles] = useState<FileNode[]>([]);
   const [attachedFileIds, setAttachedFileIds] = useState<string[]>([]);
   const [streamingContent, setStreamingContent] = useState('');
+  const [statusText, setStatusText] = useState('');
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -104,21 +107,37 @@ export default function App() {
     }
   }, [activeSessionId]);
 
+  // Добавить сообщение в сессию
+  const addMessageToSession = useCallback((sessionId: string, msg: Message) => {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id === sessionId) {
+          const updatedMessages = [...s.messages, msg];
+          const title = s.messages.length === 0 && msg.role === 'user'
+            ? msg.content.slice(0, 40) + (msg.content.length > 40 ? '...' : '')
+            : s.title;
+          return { ...s, messages: updatedMessages, title };
+        }
+        return s;
+      })
+    );
+  }, []);
+
   const handleSendMessage = useCallback(
     async (content: string) => {
       let sessionId = activeSessionId;
-      
+
       if (!sessionId) {
         const newSession: ChatSession = {
           id: generateId(),
-          title: content.slice(0, 40) + (content.length > 40 ? '...' : ''),
+          title: content.slice(0, 40),
           messages: [],
           createdAt: new Date(),
           model: settings.selectedModel,
         };
         setSessions((prev) => [newSession, ...prev]);
-        setActiveSessionId(newSession.id);
         sessionId = newSession.id;
+        setActiveSessionId(newSession.id);
       }
 
       const userMessage: Message = {
@@ -128,127 +147,171 @@ export default function App() {
         timestamp: new Date(),
       };
 
-      // Build context with attached files
-      let fullContent = content;
-      if (attachedFileIds.length > 0) {
-        const attachedFiles = attachedFileIds
-          .map((id) => findFileById(id, allFiles))
-          .filter(Boolean) as FileNode[];
-
-        if (attachedFiles.length > 0) {
-          fullContent = content + '\n\n---\n📎 Прикреплённые файлы:\n';
-          attachedFiles.forEach((file) => {
-            fullContent += `\n### ${file.name}\n\`\`\`${file.language || ''}\n${file.content}\n\`\`\`\n`;
-          });
-        }
-      }
-
-      // Add user message to session
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id === sessionId) {
-            const updatedMessages = [...s.messages, userMessage];
-            const title = s.messages.length === 0
-              ? content.slice(0, 40) + (content.length > 40 ? '...' : '')
-              : s.title;
-            return { ...s, messages: updatedMessages, title };
-          }
-          return s;
-        })
-      );
-
+      addMessageToSession(sessionId, userMessage);
       setIsLoading(true);
       setStreamingContent('');
       setAttachedFileIds([]);
+      setStatusText('Думаю...');
 
       const controller = new AbortController();
       abortRef.current = controller;
 
       try {
+        // Получаем текущую историю
         const currentSession = sessions.find((s) => s.id === sessionId);
         const history = currentSession?.messages || [];
 
+        // Строим контекст с файлами
+        let fullContent = content;
+        if (attachedFileIds.length > 0) {
+          const attachedFiles = attachedFileIds
+            .map((id) => findFileById(id, allFiles))
+            .filter(Boolean) as FileNode[];
+          if (attachedFiles.length > 0) {
+            fullContent += '\n\n---\n📎 Прикреплённые файлы:\n';
+            attachedFiles.forEach((file) => {
+              fullContent += `\n### ${file.name}\n\`\`\`${file.language || ''}\n${file.content}\n\`\`\`\n`;
+            });
+          }
+        }
+
+        // Формируем сообщения для API
         const apiMessages = [
           { role: 'system', content: settings.systemPrompt },
-          ...history.map((m) => ({ role: m.role, content: m.content })),
+          ...history.map((m) => ({
+            role: m.role === 'tool' ? 'tool' as const : m.role,
+            content: m.content,
+          })),
           { role: 'user', content: fullContent },
         ];
 
-        let fullResponse = '';
+        // Пытаемся с tool calling
+        let finalResponse = '';
+        let usedTools = false;
 
-        await sendOllamaMessage(
-          settings.ollamaUrl,
-          settings.selectedModel,
-          apiMessages,
-          settings.temperature,
-          (chunk: string) => {
-            fullResponse += chunk;
-            setStreamingContent(fullResponse);
-          },
-          controller.signal
-        );
+        try {
+          setStatusText('Анализирую запрос...');
+          const toolResponse = await sendOllamaMessageWithTools(
+            settings.ollamaUrl,
+            settings.selectedModel,
+            apiMessages,
+            TOOL_DEFINITIONS,
+            settings.temperature,
+            controller.signal
+          );
+
+          // Проверяем есть ли tool calls
+          if (toolResponse.message.tool_calls && toolResponse.message.tool_calls.length > 0) {
+            usedTools = true;
+            const toolMessages = [...apiMessages, toolResponse.message];
+
+            // Выполняем каждый tool call
+            for (const toolCall of toolResponse.message.tool_calls) {
+              const toolName = toolCall.function.name;
+              setStatusText(`⚡ Выполняю: ${toolName}...`);
+
+              const result = await executeTool(toolCall, async () => {
+                return captureScreen();
+              });
+
+              // Добавляем сообщение о результате инструмента
+              const toolResultMsg: Message = {
+                id: generateId(),
+                role: 'tool',
+                content: result.content,
+                timestamp: new Date(),
+                toolName: result.name,
+                image: result.image,
+              };
+              addMessageToSession(sessionId!, toolResultMsg);
+
+              // Добавляем результат в контекст
+              toolMessages.push({
+                role: 'tool',
+                content: result.content,
+              });
+            }
+
+            // Финальный запрос с результатами инструментов — стримим ответ
+            setStatusText('Формирую ответ...');
+            finalResponse = await sendOllamaMessage(
+              settings.ollamaUrl,
+              settings.selectedModel,
+              toolMessages,
+              settings.temperature,
+              (chunk) => setStreamingContent((prev) => prev + chunk),
+              controller.signal
+            );
+          } else {
+            // Нет tool calls — стримим обычный ответ
+            finalResponse = toolResponse.message.content;
+            if (finalResponse) {
+              // Стримим для UX
+              const words = finalResponse.split(' ');
+              let accumulated = '';
+              for (const word of words) {
+                accumulated += word + ' ';
+                setStreamingContent(accumulated);
+                await new Promise((r) => setTimeout(r, 20));
+              }
+            }
+          }
+        } catch (toolError) {
+          // Если tool calling не поддерживается моделью — fallback на обычный стриминг
+          if (toolError instanceof Error && toolError.message.includes('tools')) {
+            setStatusText('Отвечаю...');
+            finalResponse = await sendOllamaMessage(
+              settings.ollamaUrl,
+              settings.selectedModel,
+              apiMessages,
+              settings.temperature,
+              (chunk) => setStreamingContent((prev) => prev + chunk),
+              controller.signal
+            );
+          } else {
+            throw toolError;
+          }
+        }
 
         const assistantMessage: Message = {
           id: generateId(),
           role: 'assistant',
-          content: fullResponse,
+          content: finalResponse || streamingContent,
           timestamp: new Date(),
           model: settings.selectedModel,
         };
 
-        setSessions((prev) =>
-          prev.map((s) => {
-            if (s.id === sessionId) {
-              return { ...s, messages: [...s.messages, assistantMessage] };
-            }
-            return s;
-          })
-        );
+        addMessageToSession(sessionId, assistantMessage);
       } catch (error: unknown) {
         if (error instanceof Error && error.name === 'AbortError') {
-          // User cancelled
           if (streamingContent) {
             const partialMessage: Message = {
               id: generateId(),
               role: 'assistant',
-              content: streamingContent + '\n\n*[Остановлено пользователем]*',
+              content: streamingContent + '\n\n*[Остановлено]*',
               timestamp: new Date(),
               model: settings.selectedModel,
             };
-            setSessions((prev) =>
-              prev.map((s) => {
-                if (s.id === sessionId) {
-                  return { ...s, messages: [...s.messages, partialMessage] };
-                }
-                return s;
-              })
-            );
+            addMessageToSession(sessionId, partialMessage);
           }
         } else {
           const err = error instanceof Error ? error : new Error('Неизвестная ошибка');
           const errorMessage: Message = {
             id: generateId(),
             role: 'assistant',
-            content: `⚠️ **Ошибка подключения к Ollama:**\n\n\`${err.message}\`\n\n---\n\n**Решение:**\n1. Убедитесь что Ollama запущена: \`ollama serve\`\n2. Проверьте URL: ${settings.ollamaUrl}\n3. Установите модель: \`ollama pull qwen2.5-coder:7b\`\n4. Откройте ⚙️ Настройки для помощи`,
+            content: `⚠️ **Ошибка:**\n\n\`${err.message}\`\n\n---\n\n**Решение:**\n1. Убедитесь что Ollama запущена: \`ollama serve\`\n2. Проверьте URL: ${settings.ollamaUrl}\n3. Установите модель: \`ollama pull qwen2.5:7b\`\n4. Для системных команд запустите: \`node server.js\``,
             timestamp: new Date(),
           };
-
-          setSessions((prev) =>
-            prev.map((s) => {
-              if (s.id === sessionId) {
-                return { ...s, messages: [...s.messages, errorMessage] };
-              }
-              return s;
-            })
-          );
+          addMessageToSession(sessionId, errorMessage);
         }
       } finally {
         setIsLoading(false);
         setStreamingContent('');
+        setStatusText('');
         abortRef.current = null;
       }
     },
-    [activeSessionId, sessions, settings, allFiles, attachedFileIds, streamingContent]
+    [activeSessionId, sessions, settings, allFiles, attachedFileIds, streamingContent, addMessageToSession]
   );
 
   const handleStop = useCallback(() => {
@@ -277,6 +340,22 @@ export default function App() {
     );
   }, []);
 
+  const handleScreenshot = useCallback((base64: string) => {
+    // Добавляем скриншот как сообщение пользователя
+    if (activeSessionId) {
+      const msg: Message = {
+        id: generateId(),
+        role: 'user',
+        content: '[Скриншот экрана]',
+        timestamp: new Date(),
+        image: base64,
+      };
+      addMessageToSession(activeSessionId, msg);
+      // Отправляем с указанием что это скриншот
+      handleSendMessage('Пользователь сделал скриншот экрана. Посмотри на него и опиши что видишь. Скриншот прикреплён к сообщению выше.');
+    }
+  }, [activeSessionId, addMessageToSession, handleSendMessage]);
+
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-bg-primary">
       {/* Desktop Sidebar */}
@@ -298,7 +377,7 @@ export default function App() {
         />
       </div>
 
-      {/* Mobile Sidebar Overlay */}
+      {/* Mobile Sidebar */}
       <div className={`lg:hidden fixed inset-0 z-30 ${sidebarCollapsed ? 'hidden' : ''}`}>
         <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarCollapsed(true)} />
         <div className="relative w-72 h-full">
@@ -347,6 +426,9 @@ export default function App() {
             </span>
           </div>
           <div className="flex-1" />
+          {statusText && (
+            <span className="text-xs text-accent animate-pulse hidden sm:block">{statusText}</span>
+          )}
           <div className="hidden sm:flex items-center gap-2">
             <span className="px-2 py-1 rounded-md bg-bg-tertiary border border-border text-xs text-text-muted code-font">
               {settings.selectedModel}
@@ -366,6 +448,7 @@ export default function App() {
           onStop={handleStop}
           attachedFileIds={attachedFileIds}
           onAttachFile={() => setShowFiles(true)}
+          onScreenshot={handleScreenshot}
         />
       </div>
 

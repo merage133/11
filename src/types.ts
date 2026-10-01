@@ -1,9 +1,11 @@
 export interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   timestamp: Date;
   model?: string;
+  image?: string;
+  toolName?: string;
 }
 
 export interface ChatSession {

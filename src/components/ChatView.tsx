@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, Square, Copy, Check, Bot, User, Paperclip } from 'lucide-react';
+import { Send, Square, Copy, Check, Bot, User, Paperclip, Mic, MicOff, Monitor, Image } from 'lucide-react';
 import { Message } from '../types';
+import { useVoice, captureScreen } from '../hooks/useVoice';
 
 interface ChatViewProps {
   messages: Message[];
@@ -11,6 +12,7 @@ interface ChatViewProps {
   onStop: () => void;
   attachedFileIds: string[];
   onAttachFile: () => void;
+  onScreenshot: (base64: string) => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -21,11 +23,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onStop,
   attachedFileIds,
   onAttachFile,
+  onScreenshot,
 }) => {
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const {
+    isListening,
+    interimTranscript,
+    toggleListening,
+    isSupported: voiceSupported,
+    error: voiceError,
+  } = useVoice((text) => {
+    setInput((prev) => prev + text);
+  });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -36,12 +49,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
     }
-  }, [input]);
+  }, [input, interimTranscript]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
-    onSendMessage(input.trim());
+    const text = (input + (isListening ? interimTranscript : '')).trim();
+    if (!text || isLoading) return;
+    onSendMessage(text);
     setInput('');
   };
 
@@ -58,6 +72,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleScreenCapture = async () => {
+    const image = await captureScreen();
+    if (image) {
+      onScreenshot(image);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full min-h-0">
       {/* Messages */}
@@ -71,25 +92,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
               RU AI Studio
             </h2>
             <p className="text-text-secondary text-sm max-w-md mb-2">
-              Локальный AI-ассистент для работы с кодом
+              AI с полным доступом к вашему компьютеру
             </p>
-            <div className="flex items-center gap-2 mb-6">
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-6">
               <span className="px-2 py-0.5 rounded-full bg-green/10 text-green text-xs border border-green/20">
-                🔒 Приватно
+                🎤 Голос
               </span>
               <span className="px-2 py-0.5 rounded-full bg-accent/10 text-accent text-xs border border-accent/20">
-                ⚡ Без цензуры
+                🖥️ Экран
               </span>
               <span className="px-2 py-0.5 rounded-full bg-purple/10 text-purple text-xs border border-purple/20">
-                🏠 Оффлайн
+                📁 Файлы
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-orange/10 text-orange text-xs border border-orange/20">
+                ⚡ Команды
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-red/10 text-red text-xs border border-red/20">
+                🔒 Приватно
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full">
               {[
-                'Напиши REST API на Express',
-                'Объясни этот код и найди баги',
-                'Создай React компонент с хуками',
-                'Оптимизируй SQL запрос',
+                'Сделай скриншот и опиши что видишь',
+                'Покажи файлы на рабочем столе',
+                'Выключи компьютер через 10 секунд',
+                'Открой Google и найди погоду',
               ].map((suggestion) => (
                 <button
                   key={suggestion}
@@ -126,10 +153,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   }`}
                 >
                   {msg.role === 'user' ? (
-                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    <div>
+                      <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      {msg.image && (
+                        <img
+                          src={msg.image}
+                          alt="Screenshot"
+                          className="mt-2 rounded-lg max-w-full border border-border"
+                        />
+                      )}
+                    </div>
                   ) : (
                     <div className="markdown-content text-sm">
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      {msg.image && (
+                        <img
+                          src={msg.image}
+                          alt="Screenshot"
+                          className="mt-2 rounded-lg max-w-full border border-border"
+                        />
+                      )}
                     </div>
                   )}
                   <button
@@ -167,17 +210,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
             )}
 
-            {/* Loading indicator (before first chunk) */}
+            {/* Loading indicator */}
             {isLoading && !streamingContent && (
               <div className="flex gap-3 animate-fade-in">
                 <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent/20 to-accent/5 flex items-center justify-center shrink-0">
                   <Bot className="w-4 h-4 text-accent" />
                 </div>
                 <div className="bg-bg-secondary border border-border rounded-2xl rounded-tl-sm px-4 py-3">
-                  <div className="flex gap-1.5">
-                    <div className="w-2 h-2 bg-accent rounded-full animate-pulse-dot" />
-                    <div className="w-2 h-2 bg-accent rounded-full animate-pulse-dot" style={{ animationDelay: '0.3s' }} />
-                    <div className="w-2 h-2 bg-accent rounded-full animate-pulse-dot" style={{ animationDelay: '0.6s' }} />
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1.5">
+                      <div className="w-2 h-2 bg-accent rounded-full animate-pulse-dot" />
+                      <div className="w-2 h-2 bg-accent rounded-full animate-pulse-dot" style={{ animationDelay: '0.3s' }} />
+                      <div className="w-2 h-2 bg-accent rounded-full animate-pulse-dot" style={{ animationDelay: '0.6s' }} />
+                    </div>
+                    <span className="text-xs text-text-muted">Думаю...</span>
                   </div>
                 </div>
               </div>
@@ -186,6 +232,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Voice Error */}
+      {voiceError && (
+        <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-red/10 border border-red/20 text-xs text-red">
+          {voiceError}
+        </div>
+      )}
 
       {/* Input */}
       <div className="border-t border-border p-4 bg-bg-primary/50 backdrop-blur-sm">
@@ -208,19 +261,51 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 type="button"
                 onClick={onAttachFile}
                 className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
-                title="Прикрепить файлы из репозитория"
+                title="Прикрепить файлы"
               >
                 <Paperclip className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleScreenCapture}
+                className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+                title="Скриншот экрана"
+              >
+                <Monitor className="w-4 h-4" />
               </button>
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Спросите что-нибудь... (Shift+Enter — новая строка)"
+                placeholder={isListening ? '🎤 Говорите...' : 'Спросите что-нибудь... или нажмите 🎤'}
                 className="flex-1 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none min-h-[36px] max-h-[200px] py-1.5"
                 rows={1}
               />
+              {/* Voice indicator */}
+              {isListening && (
+                <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-red/10 border border-red/20">
+                  <div className="w-2 h-2 bg-red rounded-full animate-pulse-dot" />
+                  <span className="text-xs text-red">
+                    {interimTranscript ? interimTranscript.slice(0, 30) + '...' : 'Слушаю...'}
+                  </span>
+                </div>
+              )}
+              {/* Voice button */}
+              {voiceSupported && (
+                <button
+                  type="button"
+                  onClick={toggleListening}
+                  className={`p-2 rounded-lg transition-colors shrink-0 ${
+                    isListening
+                      ? 'bg-red/10 text-red hover:bg-red/20'
+                      : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
+                  }`}
+                  title={isListening ? 'Остановить запись' : 'Голосовой ввод'}
+                >
+                  {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </button>
+              )}
               {isLoading ? (
                 <button
                   type="button"
@@ -233,7 +318,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               ) : (
                 <button
                   type="submit"
-                  disabled={!input.trim()}
+                  disabled={!input.trim() && !interimTranscript}
                   className="p-2 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
                   title="Отправить"
                 >
@@ -243,7 +328,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </div>
           </form>
           <p className="text-[10px] text-text-muted mt-2 text-center tracking-wide">
-            🔒 Полностью локально • Данные не покидают ваш компьютер • Ollama
+            🔒 Локально • 🎤 Голос • 🖥️ Экран • 📁 Файлы • ⚡ Команды • Ollama
           </p>
         </div>
       </div>
