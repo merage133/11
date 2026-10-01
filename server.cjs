@@ -11,6 +11,7 @@
  */
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -73,6 +74,115 @@ function safePath(inputPath) {
   return path.resolve(inputPath);
 }
 
+// Поиск в интернете через DuckDuckGo (бесплатно, без API ключа)
+function searchInternet(query) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+    
+    https.get(url, { headers: { 'User-Agent': 'RU-AI-Studio/1.0' } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const results = [];
+          
+          // Основной ответ
+          if (json.AbstractText) {
+            results.push({
+              title: json.Heading || 'Результат',
+              snippet: json.AbstractText,
+              url: json.AbstractURL || ''
+            });
+          }
+          
+          // Ответ из других источников
+          if (json.Answer) {
+            results.push({
+              title: 'Быстрый ответ',
+              snippet: json.Answer,
+              url: json.AnswerURL || ''
+            });
+          }
+          
+          // Определения
+          if (json.Definition) {
+            results.push({
+              title: 'Определение',
+              snippet: json.Definition,
+              url: json.DefinitionURL || ''
+            });
+          }
+          
+          // Связанные темы
+          if (json.RelatedTopics && json.RelatedTopics.length > 0) {
+            json.RelatedTopics.slice(0, 5).forEach((topic) => {
+              if (topic.Text) {
+                results.push({
+                  title: topic.FirstURL ? topic.FirstURL.split('/').pop() : 'Результат',
+                  snippet: topic.Text,
+                  url: topic.FirstURL || ''
+                });
+              }
+            });
+          }
+          
+          if (results.length === 0) {
+            resolve({ success: false, results: [], message: 'Ничего не найдено' });
+          } else {
+            resolve({ success: true, results });
+          }
+        } catch (e) {
+          reject(new Error('Ошибка парсинга результатов: ' + e.message));
+        }
+      });
+    }).on('error', (e) => {
+      reject(new Error('Ошибка запроса: ' + e.message));
+    });
+  });
+}
+
+// Дополнительный поиск через HTML DuckDuckGo (для более сложных запросов)
+function searchInternetLite(query) {
+  return new Promise((resolve, reject) => {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    
+    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          const results = [];
+          
+          // Парсим результаты из HTML
+          const resultRegex = /<a rel="nofollow" class="result__a" href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+          let match;
+          
+          while ((match = resultRegex.exec(data)) !== null && results.length < 8) {
+            const url = match[1].replace(/\/\/duckduckgo\.com\/l\/\?uddg=/, '').split('&')[0];
+            const title = match[2].replace(/<[^>]+>/g, '').trim();
+            const snippet = match[3].replace(/<[^>]+>/g, '').trim();
+            
+            if (title && snippet) {
+              results.push({ title, snippet, url: decodeURIComponent(url) });
+            }
+          }
+          
+          if (results.length === 0) {
+            resolve({ success: false, results: [], message: 'Ничего не найдено' });
+          } else {
+            resolve({ success: true, results });
+          }
+        } catch (e) {
+          reject(new Error('Ошибка парсинга: ' + e.message));
+        }
+      });
+    }).on('error', (e) => {
+      reject(new Error('Ошибка запроса: ' + e.message));
+    });
+  });
+}
+
 // MIME типы для статических файлов
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -132,6 +242,45 @@ async function handleRequest(req, res) {
     // Health check
     if (pathname === '/api/health') {
       sendJson(res, 200, { status: 'ok', platform: os.platform(), uptime: process.uptime() });
+      return;
+    }
+
+    // Поиск в интернете
+    if (pathname === '/api/search' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.query) {
+        sendJson(res, 400, { error: 'Не указан поисковый запрос' });
+        return;
+      }
+      
+      try {
+        // Сначала пробуем Instant Answer API
+        let result = await searchInternet(body.query);
+        
+        // Если ничего не найдено, пробуем HTML поиск
+        if (!result.success || result.results.length === 0) {
+          result = await searchInternetLite(body.query);
+        }
+        
+        if (result.success && result.results.length > 0) {
+          const formatted = result.results.map((r, i) => 
+            `${i + 1}. ${r.title}\n   ${r.snippet}\n   URL: ${r.url}`
+          ).join('\n\n');
+          
+          sendJson(res, 200, { 
+            result: `Результаты поиска по запросу "${body.query}":\n\n${formatted}`,
+            success: true 
+          });
+        } else {
+          sendJson(res, 200, { 
+            result: `По запросу "${body.query}" ничего не найдено.`,
+            success: false 
+          });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка поиска: ${err.message}` });
+      }
       return;
     }
 

@@ -182,6 +182,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'search_internet',
+      description: 'Найти информацию в интернете. Используй когда пользователь спрашивает о текущих событиях, курсе валют, погоде, новостях, или любой информации которую нужно найти онлайн.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Поисковый запрос на русском или английском языке' },
+        },
+        required: ['query'],
+      },
+    },
+  },
 ];
 
 // Локальный сервер
@@ -353,6 +367,20 @@ export async function executeTool(
         const nav = navigator as Navigator & { deviceMemory?: number };
         const info = `Браузер: ${navigator.userAgent}\nЯзык: ${navigator.language}\nПлатформа: ${navigator.platform}\nПамять: ${nav.deviceMemory || 'неизвестно'} GB\nЯдра CPU: ${navigator.hardwareConcurrency || 'неизвестно'}`;
         return { name, content: info, success: true };
+      }
+
+      case 'search_internet': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: parsedArgs.query }),
+          });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
       }
 
       default:
