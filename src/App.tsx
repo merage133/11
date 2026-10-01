@@ -169,9 +169,9 @@ export default function App() {
       abortRef.current = controller;
 
       try {
-        // Получаем текущую историю из ref (всегда актуальное)
+        // Получаем текущую историю и добавляем текущее сообщение пользователя
         const currentSession = sessionsRef.current.find((s) => s.id === sessionId);
-        const history = currentSession?.messages || [];
+        const history = [...(currentSession?.messages || []), userMessage];
 
         // Строим контекст с файлами
         let fullContent = content;
@@ -199,7 +199,6 @@ export default function App() {
 
         // Пытаемся с tool calling
         let finalResponse = '';
-        let usedTools = false;
 
         try {
           setStatusText('Анализирую запрос...');
@@ -214,7 +213,6 @@ export default function App() {
 
           // Проверяем есть ли tool calls
           if (toolResponse.message.tool_calls && toolResponse.message.tool_calls.length > 0) {
-            usedTools = true;
             const toolMessages = [...apiMessages, toolResponse.message];
 
             // Выполняем каждый tool call
@@ -296,11 +294,11 @@ export default function App() {
         addMessageToSession(sessionId, assistantMessage);
       } catch (error: unknown) {
         if (error instanceof Error && error.name === 'AbortError') {
-          if (streamingContent) {
+          if (streamingContentRef.current) {
             const partialMessage: Message = {
               id: generateId(),
               role: 'assistant',
-              content: streamingContent + '\n\n*[Остановлено]*',
+              content: streamingContentRef.current + '\n\n*[Остановлено]*',
               timestamp: new Date(),
               model: settings.selectedModel,
             };
@@ -323,7 +321,7 @@ export default function App() {
         abortRef.current = null;
       }
     },
-    [activeSessionId, settings, allFiles, attachedFileIds, addMessageToSession]
+    [activeSessionId, settings, allFiles, attachedFileIds, addMessageToSession, streamingContentRef]
   );
 
   const handleStop = useCallback(() => {
@@ -378,9 +376,6 @@ export default function App() {
     };
     addMessageToSession(sessionId, msg);
     
-    // Небольшая задержка чтобы состояние обновилось
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
     // Отправляем запрос к AI напрямую (не через handleSendMessage чтобы избежать stale closure)
     setIsLoading(true);
     setStreamingContent('');
@@ -390,9 +385,16 @@ export default function App() {
     abortRef.current = controller;
     
     try {
+      // Получаем историю и добавляем текущее сообщение
+      const currentSession = sessionsRef.current.find((s) => s.id === sessionId);
+      const history = [...(currentSession?.messages || []), msg];
+      
       const apiMessages = [
         { role: 'system', content: settings.systemPrompt },
-        { role: 'user', content: msg.content },
+        ...history.map((m) => ({
+          role: m.role === 'tool' ? 'tool' as const : m.role,
+          content: m.content,
+        })),
       ];
       
       const response = await sendOllamaMessage(
@@ -428,7 +430,7 @@ export default function App() {
       setStatusText('');
       abortRef.current = null;
     }
-  }, [activeSessionId, addMessageToSession, settings]);
+  }, [activeSessionId, addMessageToSession, settings, sessionsRef]);
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-bg-primary">
