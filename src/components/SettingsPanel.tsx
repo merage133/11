@@ -51,7 +51,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               <Shield className="w-5 h-5 text-accent" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-text-primary">Настройки</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Mirage AI — Настройки</h2>
               <p className="text-xs text-text-secondary">Подключение • Приватность • Параметры</p>
             </div>
           </div>

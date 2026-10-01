@@ -506,7 +506,7 @@ export default function App() {
           <div className="flex items-center gap-2.5">
             <div className={`w-2 h-2 rounded-full ${ollamaConnected ? 'bg-green' : 'bg-red'} ${ollamaConnected ? 'animate-pulse-dot' : ''}`} />
             <span className="text-sm text-text-secondary truncate">
-              {activeSession ? activeSession.title : 'RU AI Studio'}
+              {activeSession ? activeSession.title : 'Mirage AI'}
             </span>
           </div>
           <div className="flex-1" />

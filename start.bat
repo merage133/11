@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 echo.
 echo ================================================================
-echo     RU AI Studio - Starting...
+echo     Mirage AI - Starting...
 echo ================================================================
 echo.
 
@@ -97,7 +97,7 @@ start "" "http://localhost:3001"
 
 echo.
 echo ================================================================
-echo     [OK] RU AI Studio is running!
+echo     [OK] Mirage AI is running!
 echo.
 echo   - Browser opened
 echo   - DO NOT close this window

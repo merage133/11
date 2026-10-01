@@ -52,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Cpu className="w-4 h-4 text-accent" />
           </div>
           <div>
-            <h1 className="text-sm font-bold text-text-primary">RU AI Studio</h1>
+            <h1 className="text-sm font-bold text-text-primary">Mirage AI</h1>
             <p className="text-[10px] text-text-muted">Локальный AI • Без цензуры</p>
           </div>
         </div>

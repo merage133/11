@@ -687,7 +687,7 @@ const server = http.createServer(handleRequest);
 server.listen(PORT, HOST, () => {
   console.log('');
   console.log('================================================');
-  console.log('     RU AI Studio - Local Server');
+  console.log('     Mirage AI - Local Server');
   console.log('------------------------------------------------');
   console.log('  [OK] Server running: http://' + HOST + ':' + PORT);
   console.log('');

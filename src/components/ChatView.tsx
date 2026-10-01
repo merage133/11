@@ -108,7 +108,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <Bot className="w-8 h-8 text-accent" />
             </div>
             <h2 className="text-2xl font-bold text-text-primary mb-2">
-              RU AI Studio
+              Mirage AI
             </h2>
             <p className="text-text-secondary text-sm max-w-md mb-2">
               AI с полным доступом к вашему компьютеру
