@@ -68,6 +68,45 @@ function safePath(inputPath) {
   return path.resolve(inputPath);
 }
 
+// MIME типы для статических файлов
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
+
+// Отдача статических файлов из dist/
+function serveStatic(req, res) {
+  let filePath = req.url === '/' ? '/index.html' : req.url;
+  filePath = path.join(__dirname, 'dist', filePath);
+  
+  // Защита от выхода за пределы папки
+  if (!filePath.startsWith(path.join(__dirname, 'dist'))) {
+    res.writeHead(403, CORS_HEADERS);
+    res.end('Forbidden');
+    return true;
+  }
+  
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    const content = fs.readFileSync(filePath);
+    res.writeHead(200, { ...CORS_HEADERS, 'Content-Type': contentType });
+    res.end(content);
+    return true;
+  }
+  return false;
+}
+
 // Обработка запросов
 async function handleRequest(req, res) {
   // CORS preflight
@@ -78,6 +117,11 @@ async function handleRequest(req, res) {
 
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   const pathname = url.pathname;
+
+  // Сначала пробуем отдать статический файл
+  if (!pathname.startsWith('/api/')) {
+    if (serveStatic(req, res)) return;
+  }
 
   try {
     // Health check
