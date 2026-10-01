@@ -80,7 +80,7 @@ ollama serve
 
 Окно 2 — Сервер:
 ```cmd
-node server.js
+node server.cjs
 ```
 
 Затем откройте: http://localhost:3001
@@ -99,7 +99,7 @@ AI увидит скриншот и сможет его описать.
 
 ## ⚡ Системные команды
 
-Для работы нужен запущенный `server.js`.
+Для работы нужен запущенный `server.cjs`.
 
 Примеры запросов:
 - "Выключи компьютер через 30 секунд"
@@ -150,7 +150,7 @@ npm install puppeteer
   ├── Голос (Web Speech API)
   ├── Скриншоты (getDisplayMedia)
   ├── Tool Calling → Ollama (localhost:11434)
-  └── Системные команды → server.js (localhost:3001)
+  └── Системные команды → server.cjs (localhost:3001)
         ├── Файловая система
         ├── Shell команды
         ├── Выключение/перезагрузка
@@ -164,7 +164,7 @@ npm install puppeteer
 - Разрешите доступ к микрофону
 
 ### "Сервер не запущен"
-- Запустите: `node server.js`
+- Запустите: `node server.cjs`
 
 ### Tool calling не работает
 - Используйте модель qwen2.5:7b или llama3.1:8b

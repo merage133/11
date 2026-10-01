@@ -19,7 +19,7 @@ HOW TO USE
 
 2. Or manually:
    - Terminal 1: ollama serve
-   - Terminal 2: node server.js
+   - Terminal 2: node server.cjs
    - Open: http://localhost:3001
 
 FEATURES
@@ -44,7 +44,7 @@ Q: "Model not found"
 A: Run: ollama pull qwen2.5:7b
 
 Q: "Server failed to start"
-A: Run: node server.js
+A: Run: node server.cjs
 
 Q: Voice input not working
 A: Use Chrome or Edge browser
@@ -57,7 +57,7 @@ FILES
 start.bat              - Launch program (double-click this)
 build_installer.bat    - Create Windows installer (.exe)
 installer.js           - Setup wizard
-server.js              - Local server for system commands
+server.cjs             - Local server for system commands
 dist/                  - Built web interface
 INSTALL.md             - Full installation guide
 USAGE.md               - Usage guide

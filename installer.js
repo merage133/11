@@ -285,7 +285,7 @@ async function main() {
   step('Checking server...');
   
   info('Starting server for test...');
-  const serverProcess = exec('node server.js', { cwd: projectPath });
+  const serverProcess = exec('node server.cjs', { cwd: projectPath });
   
   await new Promise(resolve => setTimeout(resolve, 3000));
   
@@ -337,7 +337,7 @@ async function main() {
   info('  1. Double-click "RU AI Studio" shortcut on desktop');
   info('  2. Or run manually:');
   info('     ollama serve');
-  info('     node server.js');
+  info('     node server.cjs');
   info('     Open dist/index.html in browser');
   info('');
   info('Documentation: INSTALL.md');

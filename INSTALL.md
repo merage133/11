@@ -81,7 +81,7 @@ ollama serve
 **Окно 2 — Сервер:**
 ```cmd
 cd C:\путь\к\проекту\ru-ai-studio
-node server.js
+node server.cjs
 ```
 
 Затем откройте браузер: http://localhost:3001
@@ -165,7 +165,7 @@ ollama list
 Для работы системных команд (файлы, команды, выключение) нужен запущенный сервер:
 
 ```cmd
-node server.js
+node server.cjs
 ```
 
 ### Доступные команды
@@ -181,8 +181,8 @@ node server.js
 | "Какая у меня система?" | Информация о системе |
 
 ### Проблемы
-- **"Сервер не запущен"** — запустите `node server.js`
-- **"Порт 3001 занят"** — закройте другой сервер или измените PORT в server.js
+- **"Сервер не запущен"** — запустите `node server.cjs`
+- **"Порт 3001 занят"** — закройте другой сервер или измените PORT в server.cjs
 
 ---
 
@@ -224,7 +224,7 @@ npm install puppeteer
 
 ### Изменение порта сервера
 
-Откройте `server.js` и измените:
+Откройте `server.cjs` и измените:
 ```javascript
 const PORT = 3001; // Измените на другой порт
 ```
@@ -283,7 +283,7 @@ netstat -ano | findstr :3001
 taskkill /F /PID <PID>
 
 :: Запустите снова
-node server.js
+node server.cjs
 ```
 
 ### "Голос не работает"
@@ -317,7 +317,7 @@ ru-ai-studio/
 │   │   └── FileManager.tsx
 │   └── hooks/
 │       └── useVoice.ts     # Голосовой ввод
-├── server.js               # Локальный сервер
+├── server.cjs              # Локальный сервер
 ├── installer.js            # Установщик
 ├── start.bat               # Запуск Windows
 ├── package.json

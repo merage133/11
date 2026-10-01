@@ -234,7 +234,7 @@ export async function executeTool(
           const data = await res.json();
           return { name, content: data.result || data.error, success: res.ok };
         }
-        return { name, content: 'Сервер не запущен. Запустите: node server.js', success: false };
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
       }
 
       case 'read_file': {
@@ -248,7 +248,7 @@ export async function executeTool(
           const data = await res.json();
           return { name, content: data.result || data.error, success: res.ok };
         }
-        return { name, content: 'Сервер не запущен. Запустите: node server.js', success: false };
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
       }
 
       case 'write_file': {
@@ -262,7 +262,7 @@ export async function executeTool(
           const data = await res.json();
           return { name, content: data.result || data.error, success: res.ok };
         }
-        return { name, content: 'Сервер не запущен. Запустите: node server.js', success: false };
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
       }
 
       case 'run_command': {
@@ -276,7 +276,7 @@ export async function executeTool(
           const data = await res.json();
           return { name, content: data.result || data.error, success: res.ok };
         }
-        return { name, content: 'Сервер не запущен. Запустите: node server.js', success: false };
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
       }
 
       case 'shutdown_pc': {

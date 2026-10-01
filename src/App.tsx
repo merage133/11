@@ -305,7 +305,7 @@ export default function App() {
           const errorMessage: Message = {
             id: generateId(),
             role: 'assistant',
-            content: `⚠️ **Ошибка:**\n\n\`${err.message}\`\n\n---\n\n**Решение:**\n1. Убедитесь что Ollama запущена: \`ollama serve\`\n2. Проверьте URL: ${settings.ollamaUrl}\n3. Установите модель: \`ollama pull qwen2.5:7b\`\n4. Для системных команд запустите: \`node server.js\``,
+            content: `⚠️ **Ошибка:**\n\n\`${err.message}\`\n\n---\n\n**Решение:**\n1. Убедитесь что Ollama запущена: \`ollama serve\`\n2. Проверьте URL: ${settings.ollamaUrl}\n3. Установите модель: \`ollama pull qwen2.5:7b\`\n4. Для системных команд запустите: \`node server.cjs\``,
             timestamp: new Date(),
           };
           addMessageToSession(sessionId, errorMessage);

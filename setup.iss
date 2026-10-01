@@ -72,7 +72,7 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 [Files]
 ; Основные файлы приложения
 Source: "dist\*"; DestDir: "{app}\dist"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "server.js"; DestDir: "{app}"; Flags: ignoreversion
+Source: "server.cjs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "installer.js"; DestDir: "{app}"; Flags: ignoreversion
 Source: "start.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion

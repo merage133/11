@@ -78,13 +78,13 @@ if %ERRORLEVEL% EQU 0 (
     timeout /t 1 /nobreak >nul
 )
 
-start "RU AI Server" /B cmd /c "node server.js"
+start "RU AI Server" /B cmd /c "node server.cjs"
 timeout /t 2 /nobreak >nul
 
 powershell -Command "try { Invoke-WebRequest -Uri 'http://localhost:3001/api/health' -TimeoutSec 3 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo  [ERROR] Server failed to start!
-    echo  Run manually: node server.js
+    echo  Run manually: node server.cjs
     echo.
     pause
     exit /b 1

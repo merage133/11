@@ -20,7 +20,7 @@
 
 2. Или вручную:
    - Терминал 1: ollama serve
-   - Терминал 2: node server.js
+   - Терминал 2: node server.cjs
    - Открыть: http://localhost:3001
 
 ВОЗМОЖНОСТИ
@@ -45,7 +45,7 @@
 О: Запустите: ollama pull qwen2.5:7b
 
 В: "Server failed to start"
-О: Запустите: node server.js
+О: Запустите: node server.cjs
 
 В: Голосовой ввод не работает
 О: Используйте браузер Chrome или Edge
@@ -58,7 +58,7 @@
 start.bat              - Запуск программы (двойной клик)
 build_installer.bat    - Создать установщик Windows (.exe)
 installer.js           - Мастер установки
-server.js              - Локальный сервер для системных команд
+server.cjs             - Локальный сервер для системных команд
 dist/                  - Собранный веб-интерфейс
 INSTALL.md             - Полная инструкция по установке
 USAGE.md               - Инструкция по использованию

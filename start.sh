@@ -112,7 +112,7 @@ if lsof -i :3001 > /dev/null 2>&1; then
     sleep 1
 fi
 
-node server.js &
+node server.cjs &
 SERVER_PID=$!
 sleep 2
 
@@ -121,7 +121,7 @@ if command -v curl &> /dev/null; then
     if ! curl -s http://localhost:3001/api/health > /dev/null 2>&1; then
         echo "❌ Сервер не запустился!"
         echo ""
-        echo "Попробуйте вручную: node server.js"
+        echo "Попробуйте вручную: node server.cjs"
         echo ""
         read -p "Нажмите Enter для выхода..."
         exit 1
@@ -132,7 +132,7 @@ else
         if ! wget -q --spider http://localhost:3001/api/health 2>/dev/null; then
             echo "❌ Сервер не запустился!"
             echo ""
-            echo "Попробуйте вручную: node server.js"
+            echo "Попробуйте вручную: node server.cjs"
             echo ""
             read -p "Нажмите Enter для выхода..."
             exit 1
