@@ -172,9 +172,9 @@ export default function App() {
       abortRef.current = controller;
 
       try {
-        // Получаем текущую историю и добавляем текущее сообщение пользователя
+        // Получаем текущую историю (addMessageToSession уже обновил sessionsRef)
         const currentSession = sessionsRef.current.find((s) => s.id === sessionId);
-        const history = [...(currentSession?.messages || []), userMessage];
+        const history = currentSession?.messages || [];
 
         // Строим контекст с файлами
         let fullContent = content;
@@ -381,10 +381,9 @@ export default function App() {
     abortRef.current = controller;
     
     try {
-      // Получаем историю из ref и добавляем текущее сообщение
-      // Используем sessionsRef.current, но добавляем msg вручную, так как ref может быть не обновлён
+      // Получаем историю из ref (addMessageToSession уже обновил sessionsRef)
       const currentSession = sessionsRef.current.find((s) => s.id === sessionId);
-      const history = [...(currentSession?.messages || []), msg];
+      const history = currentSession?.messages || [];
       
       const apiMessages = [
         { role: 'system', content: settings.systemPrompt },
