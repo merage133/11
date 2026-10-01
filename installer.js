@@ -1,9 +1,18 @@
 #!/usr/bin/env node
 
 /**
- * RU AI Studio - Installer
+ * Mirage AI - Installer
  * 
  * Run: node installer.js
+ * 
+ * This installer will:
+ * 1. Check and install Node.js dependencies
+ * 2. Build the project
+ * 3. Check Ollama installation
+ * 4. Install AI model
+ * 5. Install compilers for CODER (Python, C++, C#, Java, Go, Rust)
+ * 6. Create desktop shortcut
+ * 7. Test server
  */
 
 const fs = require('fs');
@@ -34,6 +43,170 @@ function checkCommand(cmd) {
   } catch {
     return false;
   }
+}
+
+// Проверка наличия компиляторов
+function checkCompilers() {
+  const compilers = {
+    python: {
+      name: 'Python',
+      commands: ['python --version', 'python3 --version'],
+      installed: false,
+      version: ''
+    },
+    gcc: {
+      name: 'GCC/G++ (C/C++)',
+      commands: ['gcc --version', 'g++ --version'],
+      installed: false,
+      version: ''
+    },
+    csharp: {
+      name: 'C# (Mono/.NET)',
+      commands: ['csc --version', 'mcs --version', 'dotnet --version'],
+      installed: false,
+      version: ''
+    },
+    java: {
+      name: 'Java (JDK)',
+      commands: ['javac -version', 'java -version'],
+      installed: false,
+      version: ''
+    },
+    go: {
+      name: 'Go',
+      commands: ['go version'],
+      installed: false,
+      version: ''
+    },
+    rust: {
+      name: 'Rust',
+      commands: ['rustc --version'],
+      installed: false,
+      version: ''
+    }
+  };
+
+  for (const [key, compiler] of Object.entries(compilers)) {
+    for (const cmd of compiler.commands) {
+      try {
+        const output = execSync(cmd, { stdio: 'pipe' }).toString();
+        compiler.installed = true;
+        compiler.version = output.split('\n')[0].trim();
+        break;
+      } catch {
+        // Команда не найдена, пробуем следующую
+      }
+    }
+  }
+
+  return compilers;
+}
+
+// Установка компиляторов
+async function installCompilers() {
+  const compilers = checkCompilers();
+  const notInstalled = Object.entries(compilers).filter(([_, c]) => !c.installed);
+
+  if (notInstalled.length === 0) {
+    success('All compilers are already installed');
+    return;
+  }
+
+  console.log('');
+  info('Available compilers for installation:');
+  console.log('');
+
+  notInstalled.forEach(([key, compiler], index) => {
+    console.log(`  ${index + 1}. ${compiler.name}`);
+  });
+  console.log('  0. Skip compiler installation');
+  console.log('');
+
+  const readline = require('readline');
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  const answer = await new Promise(resolve => {
+    rl.question('Select compilers to install (comma-separated numbers, e.g., 1,2,3 or 0 to skip): ', resolve);
+  });
+  rl.close();
+
+  if (answer.trim() === '0') {
+    info('Skipping compiler installation');
+    return;
+  }
+
+  const selected = answer.split(',').map(s => parseInt(s.trim())).filter(n => n > 0 && n <= notInstalled.length);
+
+  if (selected.length === 0) {
+    warning('No compilers selected');
+    return;
+  }
+
+  const platform = os.platform();
+
+  for (const idx of selected) {
+    const [key, compiler] = notInstalled[idx - 1];
+    console.log('');
+    info(`Installing ${compiler.name}...`);
+
+    try {
+      if (platform === 'win32') {
+        // Windows - используем winget
+        const wingetCommands = {
+          python: 'winget install Python.Python.3.12 --accept-package-agreements --accept-source-agreements',
+          gcc: 'winget install MSYS2.MSYS2 --accept-package-agreements --accept-source-agreements',
+          csharp: 'winget install Microsoft.DotNet.SDK.8 --accept-package-agreements --accept-source-agreements',
+          java: 'winget install EclipseAdoptium.Temurin.21.JDK --accept-package-agreements --accept-source-agreements',
+          go: 'winget install GoLang.Go --accept-package-agreements --accept-source-agreements',
+          rust: 'winget install Rustlang.Rust --accept-package-agreements --accept-source-agreements'
+        };
+
+        if (wingetCommands[key]) {
+          execSync(wingetCommands[key], { stdio: 'inherit' });
+          success(`${compiler.name} installed successfully`);
+        }
+      } else if (platform === 'darwin') {
+        // macOS - используем brew
+        const brewCommands = {
+          python: 'brew install python',
+          gcc: 'brew install gcc',
+          csharp: 'brew install mono',
+          java: 'brew install openjdk',
+          go: 'brew install go',
+          rust: 'brew install rustup'
+        };
+
+        if (brewCommands[key]) {
+          execSync(brewCommands[key], { stdio: 'inherit' });
+          success(`${compiler.name} installed successfully`);
+        }
+      } else {
+        // Linux - используем apt
+        const aptCommands = {
+          python: 'sudo apt-get update && sudo apt-get install -y python3 python3-pip',
+          gcc: 'sudo apt-get update && sudo apt-get install -y build-essential',
+          csharp: 'sudo apt-get update && sudo apt-get install -y mono-complete',
+          java: 'sudo apt-get update && sudo apt-get install -y default-jdk',
+          go: 'sudo apt-get update && sudo apt-get install -y golang',
+          rust: 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+        };
+
+        if (aptCommands[key]) {
+          execSync(aptCommands[key], { stdio: 'inherit' });
+          success(`${compiler.name} installed successfully`);
+        }
+      }
+    } catch (err) {
+      error(`Failed to install ${compiler.name}: ${err.message}`);
+      info(`You can install it manually later`);
+    }
+  }
+
+  console.log('');
+  success('Compiler installation completed');
 }
 
 function getDesktopPath() {
@@ -79,10 +252,10 @@ function createWindowsShortcut(projectPath) {
     fs.mkdirSync(desktop, { recursive: true });
   }
   
-  const shortcutPath = path.join(desktop, 'RU AI Studio.bat');
+  const shortcutPath = path.join(desktop, 'Mirage AI.bat');
   
   const batContent = `@echo off
-title RU AI Studio
+title Mirage AI
 cd /d "${projectPath}"
 call start.bat
 `;
@@ -93,7 +266,7 @@ call start.bat
 
 function createLinuxShortcut(projectPath) {
   const desktop = getDesktopPath();
-  const shortcutPath = path.join(desktop, 'ru-ai-studio.sh');
+  const shortcutPath = path.join(desktop, 'mirage-ai.sh');
   
   const startShPath = path.join(projectPath, 'start.sh');
   if (fs.existsSync(startShPath)) {
@@ -112,7 +285,7 @@ bash start.sh
 
 function createMacShortcut(projectPath) {
   const desktop = getDesktopPath();
-  const shortcutPath = path.join(desktop, 'RU AI Studio.command');
+  const shortcutPath = path.join(desktop, 'Mirage AI.command');
   
   const startShPath = path.join(projectPath, 'start.sh');
   if (fs.existsSync(startShPath)) {
@@ -132,7 +305,7 @@ bash start.sh
 async function main() {
   console.log('');
   console.log(COLORS.bright + COLORS.cyan + '================================================');
-  console.log('     RU AI Studio - Installer');
+  console.log('     Mirage AI - Installer');
   console.log('================================================' + COLORS.reset);
   console.log('');
 
@@ -265,7 +438,27 @@ async function main() {
     }
   }
 
-  // 6. Create desktop shortcut
+  // 6. Install compilers
+  step('Checking compilers for CODER...');
+  const compilers = checkCompilers();
+  const installedCompilers = Object.entries(compilers).filter(([_, c]) => c.installed);
+  const notInstalledCompilers = Object.entries(compilers).filter(([_, c]) => !c.installed);
+
+  if (installedCompilers.length > 0) {
+    success('Installed compilers:');
+    installedCompilers.forEach(([_, compiler]) => {
+      console.log(`  ✓ ${compiler.name}: ${compiler.version}`);
+    });
+  }
+
+  if (notInstalledCompilers.length > 0) {
+    warning(`${notInstalledCompilers.length} compiler(s) not installed`);
+    await installCompilers();
+  } else {
+    success('All compilers are installed');
+  }
+
+  // 7. Create desktop shortcut
   step('Creating desktop shortcut...');
   try {
     let shortcutPath;
@@ -281,7 +474,7 @@ async function main() {
     error('Failed to create shortcut: ' + err.message);
   }
 
-  // 7. Check server
+  // 8. Check server
   step('Checking server...');
   
   info('Starting server for test...');
@@ -332,15 +525,36 @@ async function main() {
   console.log('================================================' + COLORS.reset);
   console.log('');
   success('Shortcut created on desktop');
+  
+  // Показываем установленные компиляторы
+  const finalCompilers = checkCompilers();
+  const installed = Object.entries(finalCompilers).filter(([_, c]) => c.installed);
+  
+  if (installed.length > 0) {
+    console.log('');
+    success('Installed compilers for CODER:');
+    installed.forEach(([_, compiler]) => {
+      console.log(`  ✓ ${compiler.name}`);
+    });
+  }
+  
   info('');
   info('To launch:');
-  info('  1. Double-click "RU AI Studio" shortcut on desktop');
+  info('  1. Double-click "Mirage AI" shortcut on desktop');
   info('  2. Or run manually:');
   info('     ollama serve');
   info('     node server.cjs');
-  info('     Open dist/index.html in browser');
+  info('     Open http://localhost:3001 in browser');
   info('');
-  info('Documentation: INSTALL.md');
+  info('Features:');
+  info('  • Main chat with AI assistant');
+  info('  • CODER - code editor with auto-fix');
+  info('  • Voice input (Chrome/Edge)');
+  info('  • File management');
+  info('  • Internet search');
+  info('  • Knowledge base');
+  info('');
+  info('Documentation: README.md, CODER_GUIDE.md');
   console.log('');
 }
 

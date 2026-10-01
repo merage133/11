@@ -46,6 +46,31 @@ node server.cjs
 
 ---
 
+## 🛠️ Автоматическая установка компиляторов
+
+Установщик Mirage AI автоматически устанавливает все необходимые компиляторы для CODER:
+
+```bash
+node installer.js
+```
+
+Установщик предложит выбрать компиляторы для установки:
+- ✓ Python (для Python кода)
+- ✓ GCC/G++ (для C/C++ кода)
+- ✓ C# (.NET/Mono для C# кода)
+- ✓ Java JDK (для Java кода)
+- ✓ Go (для Go кода)
+- ✓ Rust (для Rust кода)
+
+**Автоматическая установка работает на:**
+- Windows (через winget)
+- Linux (через apt)
+- macOS (через brew)
+
+Подробнее см. [COMPILERS_INSTALL.md](COMPILERS_INSTALL.md)
+
+---
+
 ## 📦 Установка Ollama
 
 Скачайте с https://ollama.com/download
@@ -175,22 +200,29 @@ mirage-ai/
 │   ├── tools.ts            # Инструменты AI
 │   ├── types.ts            # Типы TypeScript
 │   ├── components/         # UI компоненты
-│   │   ├── ChatView.tsx
-│   │   ├── Sidebar.tsx
-│   │   ├── SettingsPanel.tsx
-│   │   ├── FileManager.tsx
-│   │   └── KnowledgeBase.tsx
+│   │   ├── ChatView.tsx        # Основной чат
+│   │   ├── CoderView.tsx       # CODER - редактор кода
+│   │   ├── CodeBlock.tsx       # Блок кода с кнопками
+│   │   ├── CodeRunner.tsx      # Запуск кода
+│   │   ├── Sidebar.tsx         # Боковая панель
+│   │   ├── SettingsPanel.tsx   # Настройки
+│   │   ├── FileManager.tsx     # Файловый менеджер
+│   │   ├── KnowledgeBase.tsx   # База знаний
+│   │   └── BranchManager.tsx   # Менеджер веток
 │   └── hooks/
 │       └── useVoice.ts     # Голосовой ввод
 ├── server.cjs              # Локальный сервер
+├── installer.js            # Установщик с компиляторами
 ├── start.bat               # Запуск Windows
 ├── MirageAI.vbs            # VBS launcher (без окна)
 ├── Mirage.bat              # BAT launcher
 ├── mirage_icon.png         # Иконка приложения
 ├── create_exe.ps1          # Скрипт создания EXE
-├── CREATE_EXE_GUIDE.md     # Инструкция по созданию EXE
-├── package.json
-└── README.md
+├── README.md               # Основная документация
+├── CODER_GUIDE.md          # Руководство по CODER
+├── COMPILERS_INSTALL.md    # Установка компиляторов
+├── CREATE_EXE_GUIDE.md     # Создание EXE
+└── package.json
 ```
 
 ---
@@ -251,6 +283,31 @@ node server.cjs
 - Попробуйте запрос на английском
 - Проверьте что server.cjs запущен
 
+### "Код не компилируется в CODER"
+```cmd
+# Проверьте установку компиляторов
+python --version
+gcc --version
+csc --version
+javac -version
+go version
+rustc --version
+```
+
+Если компилятор не установлен:
+```cmd
+# Запустите установщик
+node installer.js
+
+# Или установите вручную
+# См. COMPILERS_INSTALL.md
+```
+
+### "Голосовой ввод не работает"
+- Используйте Chrome или Edge
+- Разрешите доступ к микрофону
+- Проверьте что микрофон работает
+
 ---
 
 ## 📄 Лицензия
@@ -259,6 +316,7 @@ MIT
 
 ---
 
-**Версия:** 2.0  
-**Платформа:** Windows  
-**Автор:** Mirage AI Team
+**Версия:** 2.2.1  
+**Платформа:** Windows, Linux, macOS  
+**Автор:** Mirage AI Team  
+**Документация:** README.md, CODER_GUIDE.md, COMPILERS_INSTALL.md
