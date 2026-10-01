@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { X, Send, Square, Bot, User, Play, RotateCcw, Code2, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Send, Square, Bot, User, Play, RotateCcw, Code2, CheckCircle, AlertCircle, Mic, MicOff } from 'lucide-react';
 import { Message } from '../types';
 import { CodeBlock } from './CodeBlock';
+import { useVoice } from '../hooks/useVoice';
 
 interface CoderViewProps {
   isOpen: boolean;
@@ -15,7 +16,7 @@ interface CoderViewProps {
   currentModel: string;
 }
 
-const SUPPORTED_LANGUAGES = ['javascript', 'typescript', 'html', 'css', 'python', 'c++', 'c#', 'java', 'go', 'rust'];
+const SUPPORTED_LANGUAGES = ['JavaScript', 'TypeScript', 'HTML', 'CSS', 'Python', 'C++', 'C#', 'Java', 'Go', 'Rust'];
 
 export const CoderView: React.FC<CoderViewProps> = ({
   isOpen,
@@ -36,6 +37,15 @@ export const CoderView: React.FC<CoderViewProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const {
+    isListening,
+    interimTranscript,
+    toggleListening,
+    isSupported: voiceSupported,
+  } = useVoice((finalText) => {
+    setInput((prev) => prev + finalText);
+  });
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
@@ -49,7 +59,7 @@ export const CoderView: React.FC<CoderViewProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const text = input.trim();
+    const text = (input + (isListening ? interimTranscript : '')).trim();
     if (!text || isLoading) return;
     onSendMessage(text);
     setInput('');
@@ -172,6 +182,9 @@ export const CoderView: React.FC<CoderViewProps> = ({
                 <div className="mb-4 px-4 py-2 rounded-lg bg-bg-tertiary border border-border">
                   <p className="text-xs text-text-muted">
                     Поддерживаемые языки: {SUPPORTED_LANGUAGES.join(', ')}
+                  </p>
+                  <p className="text-xs text-text-muted mt-1">
+                    Для компилируемых языков установите соответствующие компиляторы
                   </p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full">
@@ -304,13 +317,47 @@ export const CoderView: React.FC<CoderViewProps> = ({
                 <div className="flex items-end gap-2 bg-bg-secondary border border-border rounded-xl p-2 focus-within:border-accent/50 transition-colors shadow-lg">
                   <textarea
                     ref={textareaRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    value={input + (isListening && interimTranscript ? ' ' + interimTranscript : '')}
+                    onChange={(e) => {
+                      if (isListening && interimTranscript) {
+                        const newValue = e.target.value;
+                        if (!newValue.includes(interimTranscript)) {
+                          setInput(newValue);
+                        }
+                      } else {
+                        setInput(e.target.value);
+                      }
+                    }}
                     onKeyDown={handleKeyDown}
-                    placeholder="Опишите какой код написать..."
+                    placeholder={isListening ? '🎤 Говорите...' : 'Опишите какой код написать...'}
                     className="flex-1 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none min-h-[36px] max-h-[200px] py-1.5"
                     rows={1}
                   />
+                  
+                  {/* Voice indicator */}
+                  {isListening && (
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-red/10 border border-red/20 shrink-0">
+                      <div className="w-2 h-2 bg-red rounded-full animate-pulse-dot" />
+                      <span className="text-xs text-red">Слушаю...</span>
+                    </div>
+                  )}
+                  
+                  {/* Voice button */}
+                  {voiceSupported && (
+                    <button
+                      type="button"
+                      onClick={toggleListening}
+                      className={`p-2 rounded-lg transition-colors shrink-0 ${
+                        isListening
+                          ? 'bg-red/10 text-red hover:bg-red/20'
+                          : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
+                      }`}
+                      title={isListening ? 'Остановить запись' : 'Голосовой ввод'}
+                    >
+                      {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    </button>
+                  )}
+                  
                   {isLoading ? (
                     <button
                       type="button"
@@ -323,7 +370,7 @@ export const CoderView: React.FC<CoderViewProps> = ({
                   ) : (
                     <button
                       type="submit"
-                      disabled={!input.trim()}
+                      disabled={!input.trim() && !interimTranscript}
                       className="p-2 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
                       title="Отправить"
                     >
@@ -417,6 +464,9 @@ export const CoderView: React.FC<CoderViewProps> = ({
                 <div className="mt-4 px-4 py-2 rounded-lg bg-bg-tertiary border border-border">
                   <p className="text-xs text-text-muted">
                     Поддерживается автоматическое исправление ошибок
+                  </p>
+                  <p className="text-xs text-text-muted mt-1">
+                    Языки: {SUPPORTED_LANGUAGES.join(', ')}
                   </p>
                 </div>
               </div>
