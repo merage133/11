@@ -142,6 +142,40 @@ function searchInternet(query) {
   });
 }
 
+// Поиск через Wikipedia API
+function searchWikipedia(query) {
+  return new Promise((resolve, reject) => {
+    const url = `https://ru.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=3`;
+    
+    https.get(url, { headers: { 'User-Agent': 'RU-AI-Studio/1.0' } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const results = [];
+          
+          if (json.query && json.query.search && json.query.search.length > 0) {
+            json.query.search.forEach((item) => {
+              results.push({
+                title: item.title,
+                snippet: item.snippet.replace(/<[^>]+>/g, ''), // Убираем HTML теги
+                url: `https://ru.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, '_'))}`
+              });
+            });
+          }
+          
+          resolve({ success: results.length > 0, results });
+        } catch (e) {
+          reject(new Error('Ошибка парсинга Wikipedia: ' + e.message));
+        }
+      });
+    }).on('error', (e) => {
+      reject(new Error('Ошибка запроса Wikipedia: ' + e.message));
+    });
+  });
+}
+
 // Дополнительный поиск через HTML DuckDuckGo (для более сложных запросов)
 function searchInternetLite(query) {
   return new Promise((resolve, reject) => {
@@ -258,7 +292,19 @@ async function handleRequest(req, res) {
         // Сначала пробуем Instant Answer API
         let result = await searchInternet(body.query);
         
-        // Если ничего не найдено, пробуем HTML поиск
+        // Если ничего не найдено, пробуем Wikipedia
+        if (!result.success || result.results.length === 0) {
+          try {
+            const wikiResult = await searchWikipedia(body.query);
+            if (wikiResult.success && wikiResult.results.length > 0) {
+              result = wikiResult;
+            }
+          } catch (wikiError) {
+            // Игнорируем ошибки Wikipedia
+          }
+        }
+        
+        // Если все еще ничего не найдено, пробуем HTML поиск
         if (!result.success || result.results.length === 0) {
           result = await searchInternetLite(body.query);
         }

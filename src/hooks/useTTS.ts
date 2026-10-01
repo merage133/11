@@ -32,6 +32,29 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
   const [pitch, setPitch] = useState(options.pitch || 1);
   const [volume, setVolume] = useState(options.volume || 1);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  
+  // Refs для актуальных значений в speak
+  const currentVoiceRef = useRef(currentVoice);
+  const rateRef = useRef(rate);
+  const pitchRef = useRef(pitch);
+  const volumeRef = useRef(volume);
+  
+  // Обновляем refs при изменении состояния
+  useEffect(() => {
+    currentVoiceRef.current = currentVoice;
+  }, [currentVoice]);
+  
+  useEffect(() => {
+    rateRef.current = rate;
+  }, [rate]);
+  
+  useEffect(() => {
+    pitchRef.current = pitch;
+  }, [pitch]);
+  
+  useEffect(() => {
+    volumeRef.current = volume;
+  }, [volume]);
 
   // Загрузка голосов
   useEffect(() => {
@@ -62,17 +85,17 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
 
     const utterance = new SpeechSynthesisUtterance(text);
     
-    // Устанавливаем голос
-    if (currentVoice) {
-      const voice = voices.find(v => v.name === currentVoice);
+    // Устанавливаем голос - используем текущее значение из ref
+    if (currentVoiceRef.current) {
+      const voice = voices.find(v => v.name === currentVoiceRef.current);
       if (voice) {
         utterance.voice = voice;
       }
     }
 
-    utterance.rate = rate;
-    utterance.pitch = pitch;
-    utterance.volume = volume;
+    utterance.rate = rateRef.current;
+    utterance.pitch = pitchRef.current;
+    utterance.volume = volumeRef.current;
     utterance.lang = 'ru-RU';
 
     utterance.onstart = () => setIsSpeaking(true);
@@ -81,7 +104,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
 
     utteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
-  }, [currentVoice, voices, rate, pitch, volume]);
+  }, [voices]);
 
   const stop = useCallback(() => {
     window.speechSynthesis.cancel();

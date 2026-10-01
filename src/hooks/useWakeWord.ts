@@ -31,21 +31,38 @@ export function useWakeWord({ wakeWord, onWake, enabled }: UseWakeWordOptions): 
     recognition.maxAlternatives = 3;
 
     recognition.onresult = (event: any) => {
-      const lastResult = event.results[event.results.length - 1];
-      const transcript = lastResult[0].transcript.toLowerCase().trim();
-      
-      // Проверяем wake word
-      const wakeWordLower = wakeWord.toLowerCase();
-      if (transcript.includes(wakeWordLower)) {
-        const now = Date.now();
-        // Защита от повторных срабатываний (3 секунды)
-        if (now - lastWakeTime.current > 3000) {
-          lastWakeTime.current = now;
-          setDetectedWord(wakeWord);
-          onWake();
+      // Проверяем все результаты, а не только последний
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          const transcript = result[0].transcript.toLowerCase().trim();
           
-          // Сбрасываем detected word через 2 секунды
-          setTimeout(() => setDetectedWord(null), 2000);
+          // Проверяем wake word - более гибкое сравнение
+          const wakeWordLower = wakeWord.toLowerCase().trim();
+          const words = wakeWordLower.split(/\s+/);
+          
+          // Проверяем если все слова фразы есть в транскрипте
+          const allWordsPresent = words.every(word => transcript.includes(word));
+          
+          // Или если фраза полностью совпадает
+          const exactMatch = transcript.includes(wakeWordLower);
+          
+          if (allWordsPresent || exactMatch) {
+            const now = Date.now();
+            // Защита от повторных срабатываний (3 секунды)
+            if (now - lastWakeTime.current > 3000) {
+              lastWakeTime.current = now;
+              setDetectedWord(wakeWord);
+              onWake();
+              
+              // Сбрасываем detected word через 2 секунды
+              setTimeout(() => setDetectedWord(null), 2000);
+              
+              // Останавливаем распознавание чтобы не срабатывало снова
+              recognition.stop();
+              break;
+            }
+          }
         }
       }
     };

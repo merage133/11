@@ -46,12 +46,19 @@ export const LiveMode: React.FC<LiveModeProps> = ({
     speak,
     stop: stopSpeaking,
     isSpeaking,
-  } = useTTS({
-    voiceName: voiceSettings.voiceName,
-    rate: voiceSettings.rate,
-    pitch: voiceSettings.pitch,
-    volume: voiceSettings.volume,
-  });
+    setVoice,
+    setRate,
+    setPitch,
+    setVolume,
+  } = useTTS();
+
+  // Обновляем настройки голоса при изменении
+  useEffect(() => {
+    if (voiceSettings.voiceName) setVoice(voiceSettings.voiceName);
+    setRate(voiceSettings.rate);
+    setPitch(voiceSettings.pitch);
+    setVolume(voiceSettings.volume);
+  }, [voiceSettings.voiceName, voiceSettings.rate, voiceSettings.pitch, voiceSettings.volume, setVoice, setRate, setPitch, setVolume]);
 
   // Озвучиваем последний ответ если включено autoSpeak
   useEffect(() => {
@@ -72,7 +79,7 @@ export const LiveMode: React.FC<LiveModeProps> = ({
         speak(cleanText);
       }
     }
-  }, [lastResponse, voiceSettings.autoSpeak]);
+  }, [lastResponse, voiceSettings.autoSpeak, isSpeaking, speak]);
 
   // Drag functionality
   const handleMouseDown = (e: React.MouseEvent) => {
