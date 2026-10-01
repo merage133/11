@@ -31,8 +31,20 @@ export const DEFAULT_SETTINGS: AppSettings = {
 - Если нужно выполнить команду — вызывай run_command
 - Если просят выключить/перезагрузить — делай это сразу
 - Если спрашивают о курсе валют, погоде, новостях, текущих событиях — вызывай search_internet
+- Если спрашивают о времени — вызывай get_current_time
 - Отвечай на русском языке`,
   theme: 'dark',
+  voice: {
+    voiceName: '',
+    rate: 1.0,
+    pitch: 1.0,
+    volume: 1.0,
+    autoSpeak: false,
+  },
+  wakeWord: {
+    enabled: false,
+    phrase: 'привет ассистент',
+  },
 };
 
 export const MODELS: Record<string, string[]> = {

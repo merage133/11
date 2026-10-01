@@ -196,6 +196,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'get_current_time',
+      description: 'Получить текущее время и дату на компьютере пользователя. Используй когда спрашивают который час, какая дата, день недели.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
 ];
 
 // Локальный сервер
@@ -381,6 +393,21 @@ export async function executeTool(
           return { name, content: data.result || data.error, success: res.ok };
         }
         return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'get_current_time': {
+        const now = new Date();
+        const days = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+        const months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+        
+        const time = now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const date = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()} года, ${days[now.getDay()]}`;
+        
+        return { 
+          name, 
+          content: `Текущее время: ${time}\nДата: ${date}\nЧасовой пояс: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`, 
+          success: true 
+        };
       }
 
       default:

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Menu } from 'lucide-react';
+import { Menu, Mic } from 'lucide-react';
 import { Message, ChatSession, FileNode, AppSettings } from './types';
 import { DEFAULT_SETTINGS, sendOllamaMessage, sendOllamaMessageWithTools, checkOllamaConnection } from './config';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
@@ -8,6 +8,8 @@ import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { FileManager } from './components/FileManager';
+import { LiveMode } from './components/LiveMode';
+import { useWakeWord } from './hooks/useWakeWord';
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -60,6 +62,8 @@ export default function App() {
   const [attachedFileIds, setAttachedFileIds] = useState<string[]>([]);
   const [streamingContent, setStreamingContent] = useState('');
   const [statusText, setStatusText] = useState('');
+  const [isLiveModeOpen, setIsLiveModeOpen] = useState(false);
+  const [lastResponse, setLastResponse] = useState<string | undefined>();
   const abortRef = useRef<AbortController | null>(null);
   const streamingContentRef = useRef('');
   const sessionsRef = useRef(sessions);
@@ -73,6 +77,8 @@ export default function App() {
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
+
+
 
   useEffect(() => {
     localStorage.setItem('ru-ai-studio-settings', JSON.stringify(settings));
@@ -93,6 +99,25 @@ export default function App() {
   }, [settings.ollamaUrl]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
+
+  // Сохраняем последний ответ для озвучки
+  useEffect(() => {
+    if (activeSession && activeSession.messages.length > 0) {
+      const lastMsg = activeSession.messages[activeSession.messages.length - 1];
+      if (lastMsg.role === 'assistant') {
+        setLastResponse(lastMsg.content);
+      }
+    }
+  }, [activeSession]);
+
+  // Wake word detection
+  useWakeWord({
+    wakeWord: settings.wakeWord?.phrase || 'привет ассистент',
+    enabled: settings.wakeWord?.enabled || false,
+    onWake: () => {
+      setIsLiveModeOpen(true);
+    },
+  });
 
   const updateSettings = useCallback((updates: Partial<AppSettings>) => {
     setSettings((prev) => ({ ...prev, ...updates }));
@@ -508,6 +533,14 @@ export default function App() {
             <span className="px-2 py-1 rounded-md bg-green/5 border border-green/20 text-xs text-green">
               🔒 Локально
             </span>
+            <button
+              onClick={() => setIsLiveModeOpen(true)}
+              className="px-3 py-1 rounded-md bg-accent/10 border border-accent/20 text-xs text-accent hover:bg-accent/20 transition-colors flex items-center gap-1.5"
+              title="Открыть Live Mode (голосовой ассистент)"
+            >
+              <Mic className="w-3.5 h-3.5" />
+              Live
+            </button>
           </div>
         </div>
 
@@ -544,6 +577,21 @@ export default function App() {
           onToggleAttach={handleToggleAttach}
         />
       )}
+
+      {/* Live Mode - голосовой ассистент */}
+      <LiveMode
+        isOpen={isLiveModeOpen}
+        onClose={() => setIsLiveModeOpen(false)}
+        onSendMessage={handleSendMessage}
+        voiceSettings={{
+          voiceName: settings.voice?.voiceName || '',
+          rate: settings.voice?.rate || 1.0,
+          pitch: settings.voice?.pitch || 1.0,
+          volume: settings.voice?.volume || 1.0,
+          autoSpeak: settings.voice?.autoSpeak || false,
+        }}
+        lastResponse={lastResponse}
+      />
     </div>
   );
 }
