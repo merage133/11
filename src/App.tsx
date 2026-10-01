@@ -9,6 +9,7 @@ import { ChatView } from './components/ChatView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { FileManager } from './components/FileManager';
 import { KnowledgeBase } from './components/KnowledgeBase';
+import { BranchManager } from './components/BranchManager';
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -55,6 +56,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
+  const [showBranches, setShowBranches] = useState(false);
+  const [branches, setBranches] = useState<Array<{ id: string; name: string; sessionIds: string[]; createdAt: Date }>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [ollamaConnected, setOllamaConnected] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -451,6 +454,7 @@ export default function App() {
           onOpenSettings={() => setShowSettings(true)}
           onOpenFiles={() => setShowFiles(true)}
           onOpenKnowledge={() => setShowKnowledge(true)}
+          onOpenBranches={() => setShowBranches(true)}
           ollamaConnected={ollamaConnected}
           currentModel={settings.selectedModel}
           collapsed={false}
@@ -486,6 +490,10 @@ export default function App() {
               setShowKnowledge(true);
               setSidebarCollapsed(true);
             }}
+            onOpenBranches={() => {
+              setShowBranches(true);
+              setSidebarCollapsed(true);
+            }}
             ollamaConnected={ollamaConnected}
             currentModel={settings.selectedModel}
             collapsed={false}
@@ -514,9 +522,13 @@ export default function App() {
             <span className="text-xs text-accent animate-pulse hidden sm:block">{statusText}</span>
           )}
           <div className="hidden sm:flex items-center gap-2">
-            <span className="px-2 py-1 rounded-md bg-bg-tertiary border border-border text-xs text-text-muted code-font">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="px-2 py-1 rounded-md bg-bg-tertiary border border-border text-xs text-text-muted code-font hover:bg-bg-hover hover:border-accent/30 transition-colors cursor-pointer"
+              title="Нажмите для смены модели"
+            >
               {settings.selectedModel}
-            </span>
+            </button>
             <span className="px-2 py-1 rounded-md bg-green/5 border border-green/20 text-xs text-green">
               🔒 Локально
             </span>
@@ -561,6 +573,45 @@ export default function App() {
         <KnowledgeBase
           isOpen={showKnowledge}
           onClose={() => setShowKnowledge(false)}
+        />
+      )}
+
+      {showBranches && (
+        <BranchManager
+          isOpen={showBranches}
+          onClose={() => setShowBranches(false)}
+          sessions={sessions}
+          branches={branches}
+          onCreateBranch={(name) => {
+            const newBranch = {
+              id: generateId(),
+              name,
+              sessionIds: [],
+              createdAt: new Date(),
+            };
+            setBranches([...branches, newBranch]);
+          }}
+          onDeleteBranch={(id) => {
+            setBranches(branches.filter((b) => b.id !== id));
+          }}
+          onAddSessionToBranch={(branchId, sessionId) => {
+            setBranches(
+              branches.map((b) =>
+                b.id === branchId
+                  ? { ...b, sessionIds: [...b.sessionIds, sessionId] }
+                  : b
+              )
+            );
+          }}
+          onRemoveSessionFromBranch={(branchId, sessionId) => {
+            setBranches(
+              branches.map((b) =>
+                b.id === branchId
+                  ? { ...b, sessionIds: b.sessionIds.filter((id) => id !== sessionId) }
+                  : b
+              )
+            );
+          }}
         />
       )}
 

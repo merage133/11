@@ -76,6 +76,15 @@ body {
   animation: fade-in 0.2s ease-out;
 }
 
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
 .markdown-content h1, .markdown-content h2, .markdown-content h3 {
   color: var(--color-text-primary);
   margin-top: 1em;

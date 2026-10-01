@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   BookOpen,
+  GitBranch,
 } from 'lucide-react';
 import { ChatSession } from '../types';
 
@@ -21,6 +22,7 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenFiles: () => void;
   onOpenKnowledge: () => void;
+  onOpenBranches: () => void;
   ollamaConnected: boolean;
   currentModel: string;
   collapsed: boolean;
@@ -35,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
   onOpenFiles,
   onOpenKnowledge,
+  onOpenBranches,
   ollamaConnected,
   currentModel,
   collapsed,
@@ -128,6 +131,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Bottom Actions */}
       <div className="p-3 border-t border-border space-y-1">
+        <button
+          onClick={onOpenBranches}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-sm"
+        >
+          <GitBranch className="w-4 h-4" />
+          Ветки и проекты
+        </button>
         <button
           onClick={onOpenKnowledge}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-sm"
