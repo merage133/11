@@ -341,39 +341,65 @@ function getExchangeRate(from, to) {
   });
 }
 
-// Получение погоды через wttr.in (без API ключа)
-function getWeather(city) {
+// Получение погоды через wttr.in (без API ключа) с retry
+function getWeather(city, retries = 3) {
   return new Promise((resolve, reject) => {
     const url = `https://wttr.in/${encodeURIComponent(city)}?format=j1&lang=ru`;
     
-    https.get(url, { headers: { 'User-Agent': 'RU-AI-Studio/1.0' } }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (json.current_condition && json.current_condition[0]) {
-            const current = json.current_condition[0];
-            resolve({
-              success: true,
-              city: city,
-              temp: current.temp_C,
-              feels_like: current.FeelsLikeC,
-              description: current.lang_ru && current.lang_ru[0] ? current.lang_ru[0].value : current.weatherDesc[0].value,
-              humidity: current.humidity,
-              wind_speed: current.windspeedKmph,
-              wind_dir: current.winddir16Point
-            });
-          } else {
-            resolve({ success: false, error: 'Город не найден' });
+    const makeRequest = (attempt) => {
+      const req = https.get(url, { 
+        headers: { 'User-Agent': 'MirageAI/2.3' },
+        timeout: 10000
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => data += chunk);
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            if (json.current_condition && json.current_condition[0]) {
+              const current = json.current_condition[0];
+              resolve({
+                success: true,
+                city: city,
+                temp: current.temp_C,
+                feels_like: current.FeelsLikeC,
+                description: current.lang_ru && current.lang_ru[0] ? current.lang_ru[0].value : current.weatherDesc[0].value,
+                humidity: current.humidity,
+                wind_speed: current.windspeedKmph,
+                wind_dir: current.winddir16Point
+              });
+            } else {
+              resolve({ success: false, error: 'Город не найден' });
+            }
+          } catch (e) {
+            if (attempt < retries) {
+              setTimeout(() => makeRequest(attempt + 1), 1000);
+            } else {
+              reject(new Error('Ошибка парсинга: ' + e.message));
+            }
           }
-        } catch (e) {
-          reject(new Error('Ошибка парсинга: ' + e.message));
+        });
+      });
+      
+      req.on('error', (e) => {
+        if (attempt < retries) {
+          setTimeout(() => makeRequest(attempt + 1), 1000);
+        } else {
+          reject(new Error('Ошибка запроса после ' + retries + ' попыток: ' + e.message));
         }
       });
-    }).on('error', (e) => {
-      reject(new Error('Ошибка запроса: ' + e.message));
-    });
+      
+      req.on('timeout', () => {
+        req.destroy();
+        if (attempt < retries) {
+          setTimeout(() => makeRequest(attempt + 1), 1000);
+        } else {
+          reject(new Error('Таймаут после ' + retries + ' попыток'));
+        }
+      });
+    };
+    
+    makeRequest(1);
   });
 }
 
