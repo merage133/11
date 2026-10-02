@@ -1,10 +1,10 @@
 @echo off
-title RU AI Studio - Build Installer
+title Mirage AI - Build Installer
 cd /d "%~dp0"
 
 echo.
 echo ================================================================
-echo     RU AI Studio - Creating Windows Installer
+echo     Mirage AI - Creating Windows Installer
 echo ================================================================
 echo.
 

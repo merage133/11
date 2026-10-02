@@ -374,6 +374,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'check_available_compilers',
+      description: 'Проверить какие компиляторы и интерпретаторы установлены в системе. Используй ПЕРЕД написанием кода чтобы понять какие языки доступны.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
 ];
 
 // Локальный сервер
@@ -726,6 +738,16 @@ export async function executeTool(
           const res = await fetch(`${SERVER_URL}/api/workspace/clean`, {
             method: 'POST',
           });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'check_available_compilers': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/system/compilers`);
           const data = await res.json();
           return { name, content: data.result || data.error, success: res.ok };
         }

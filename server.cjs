@@ -1306,6 +1306,103 @@ Uptime: ${(os.uptime() / 3600).toFixed(1)} часов
       return;
     }
 
+    // Проверка доступных компиляторов
+    if (pathname === '/api/system/compilers' && req.method === 'GET') {
+      try {
+        const compilers = [];
+        
+        // Проверка Python
+        try {
+          const pythonVersion = execSync('python --version 2>&1', { encoding: 'utf-8' }).trim();
+          compilers.push({ name: 'Python', version: pythonVersion, available: true });
+        } catch {
+          try {
+            const python3Version = execSync('python3 --version 2>&1', { encoding: 'utf-8' }).trim();
+            compilers.push({ name: 'Python', version: python3Version, available: true });
+          } catch {
+            compilers.push({ name: 'Python', version: 'не установлен', available: false });
+          }
+        }
+        
+        // Проверка Node.js
+        try {
+          const nodeVersion = execSync('node --version 2>&1', { encoding: 'utf-8' }).trim();
+          compilers.push({ name: 'Node.js', version: nodeVersion, available: true });
+        } catch {
+          compilers.push({ name: 'Node.js', version: 'не установлен', available: false });
+        }
+        
+        // Проверка GCC/G++
+        try {
+          const gccVersion = execSync('g++ --version 2>&1', { encoding: 'utf-8' }).split('\n')[0].trim();
+          compilers.push({ name: 'G++', version: gccVersion, available: true });
+        } catch {
+          compilers.push({ name: 'G++', version: 'не установлен', available: false });
+        }
+        
+        // Проверка Java
+        try {
+          const javaVersion = execSync('java -version 2>&1', { encoding: 'utf-8' }).split('\n')[0].trim();
+          compilers.push({ name: 'Java', version: javaVersion, available: true });
+        } catch {
+          compilers.push({ name: 'Java', version: 'не установлен', available: false });
+        }
+        
+        // Проверка Go
+        try {
+          const goVersion = execSync('go version 2>&1', { encoding: 'utf-8' }).trim();
+          compilers.push({ name: 'Go', version: goVersion, available: true });
+        } catch {
+          compilers.push({ name: 'Go', version: 'не установлен', available: false });
+        }
+        
+        // Проверка Rust
+        try {
+          const rustVersion = execSync('rustc --version 2>&1', { encoding: 'utf-8' }).trim();
+          compilers.push({ name: 'Rust', version: rustVersion, available: true });
+        } catch {
+          compilers.push({ name: 'Rust', version: 'не установлен', available: false });
+        }
+        
+        // Проверка C#
+        try {
+          const cscVersion = execSync('csc -version 2>&1', { encoding: 'utf-8' }).trim();
+          compilers.push({ name: 'C#', version: cscVersion, available: true });
+        } catch {
+          compilers.push({ name: 'C#', version: 'не установлен', available: false });
+        }
+        
+        const available = compilers.filter(c => c.available);
+        const unavailable = compilers.filter(c => !c.available);
+        
+        let result = '=== ДОСТУПНЫЕ КОМПИЛЯТОРЫ И ИНТЕРПРЕТАТОРЫ ===\n\n';
+        
+        if (available.length > 0) {
+          result += '✅ УСТАНОВЛЕНЫ:\n';
+          available.forEach(c => {
+            result += `  • ${c.name}: ${c.version}\n`;
+          });
+          result += '\n';
+        }
+        
+        if (unavailable.length > 0) {
+          result += '❌ НЕ УСТАНОВЛЕНЫ:\n';
+          unavailable.forEach(c => {
+            result += `  • ${c.name}\n`;
+          });
+          result += '\n';
+        }
+        
+        result += '===============================================\n';
+        result += 'Используй только установленные языки для написания кода!';
+        
+        sendJson(res, 200, { result, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка проверки компиляторов: ${err.message}` });
+      }
+      return;
+    }
+
     // Чтение документов (PDF, DOCX)
     if (pathname === '/api/document/read' && req.method === 'POST') {
       const body = await parseBody(req);
