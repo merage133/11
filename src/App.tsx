@@ -11,6 +11,7 @@ import { FileManager } from './components/FileManager';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { BranchManager } from './components/BranchManager';
 import { CoderView } from './components/CoderView';
+import { ActionConfirmation } from './components/ActionConfirmation';
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -70,9 +71,9 @@ export default function App() {
   const [attachedFileIds, setAttachedFileIds] = useState<string[]>([]);
   const [streamingContent, setStreamingContent] = useState('');
   const [statusText, setStatusText] = useState('');
-
-  const abortRef = useRef<AbortController | null>(null);
-  const streamingContentRef = useRef('');
+  const [ws, setWs] = useState<WebSocket | null>(null);
+  
+  const abortRef = useRef<AbortController | null>(null);  const streamingContentRef = useRef('');
   const sessionsRef = useRef(sessions);
   
   // Обновляем ref при изменении streamingContent
@@ -94,6 +95,29 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('ru-ai-studio-sessions', JSON.stringify(sessions));
   }, [sessions]);
+
+  // WebSocket подключение для подтверждения опасных действий
+  useEffect(() => {
+    const websocket = new WebSocket('ws://localhost:3002');
+    
+    websocket.onopen = () => {
+      console.log('[WS] Connected to server');
+      setWs(websocket);
+    };
+    
+    websocket.onclose = () => {
+      console.log('[WS] Disconnected from server');
+      setWs(null);
+    };
+    
+    websocket.onerror = (error) => {
+      console.error('[WS] Error:', error);
+    };
+    
+    return () => {
+      websocket.close();
+    };
+  }, []);
 
   useEffect(() => {
     const check = async () => {
@@ -245,7 +269,25 @@ export default function App() {
               const currentToolCalls = toolResponse.message.tool_calls || [];
               for (const toolCall of currentToolCalls) {
                 const toolName = toolCall.function.name;
-                setStatusText(`⚡ Выполняю: ${toolName}...`);
+                
+                // Улучшенные индикаторы выполнения
+                const toolIndicators: Record<string, string> = {
+                  'search_internet': '🔍 AI ищет в интернете...',
+                  'get_exchange_rate': '💱 AI получает курс валют...',
+                  'get_weather': '🌤️ AI проверяет погоду...',
+                  'get_current_time': '🕐 AI узнаёт время...',
+                  'take_screenshot': '📸 AI делает скриншот...',
+                  'list_files': '📁 AI просматривает файлы...',
+                  'read_file': '📖 AI читает файл...',
+                  'write_file': '✍️ AI записывает файл...',
+                  'run_command': '💻 AI выполняет команду...',
+                  'compile_and_run': '⚙️ AI компилирует и запускает код...',
+                  'search_knowledge_base': '📚 AI ищет в базе знаний...',
+                  'shutdown_pc': '⚠️ AI запрашивает выключение...',
+                  'restart_pc': '⚠️ AI запрашивает перезагрузку...',
+                };
+                
+                setStatusText(toolIndicators[toolName] || `⚡ Выполняю: ${toolName}...`);
 
                 const result = await executeTool(toolCall, async () => {
                   return captureScreen();
@@ -727,6 +769,9 @@ export default function App() {
           currentModel={settings.selectedModel}
         />
       )}
+
+      {/* Подтверждение опасных действий */}
+      <ActionConfirmation ws={ws} />
 
     </div>
   );

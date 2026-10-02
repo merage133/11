@@ -252,6 +252,35 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'summarize_history',
+      description: 'Суммаризировать длинную историю диалога когда она становится слишком большой. Вызывай когда история превышает 50 сообщений.',
+      parameters: {
+        type: 'object',
+        properties: {
+          messages: { type: 'string', description: 'История сообщений для суммаризации' },
+        },
+        required: ['messages'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_knowledge_base',
+      description: 'Поиск в векторной базе знаний пользователя. Используй когда нужно найти информацию из добавленных пользователем документов.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Поисковый запрос для базы знаний' },
+          top_k: { type: 'string', description: 'Количество результатов (по умолчанию 3)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
 ];
 
 // Локальный сервер
@@ -489,6 +518,32 @@ export async function executeTool(
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ code: parsedArgs.code, language: parsedArgs.language }),
+          });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'summarize_history': {
+        // Суммаризация обрабатывается на фронтенде через специальный механизм
+        return { 
+          name, 
+          content: 'История будет суммаризирована автоматически при необходимости.', 
+          success: true 
+        };
+      }
+
+      case 'search_knowledge_base': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/knowledge/search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              query: parsedArgs.query, 
+              top_k: parseInt(parsedArgs.top_k) || 3 
+            }),
           });
           const data = await res.json();
           return { name, content: data.result || data.error, success: res.ok };

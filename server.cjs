@@ -16,9 +16,68 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { exec, execSync } = require('child_process');
+const WebSocket = require('ws');
+const duckDuckScrape = require('duck-duck-scrape');
 
 const PORT = 3001;
 const HOST = '127.0.0.1'; // Только локальный доступ
+
+// WebSocket сервер для подтверждения опасных действий
+const wss = new WebSocket.Server({ port: 3002 });
+const pendingActions = new Map();
+
+wss.on('connection', (ws) => {
+  console.log('[WS] Frontend connected');
+  
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      
+      if (data.type === 'ACTION_RESPONSE') {
+        const pending = pendingActions.get(data.actionId);
+        if (pending) {
+          pending.resolve(data.approved);
+          pendingActions.delete(data.actionId);
+        }
+      }
+    } catch (e) {
+      console.error('[WS] Error:', e.message);
+    }
+  });
+  
+  ws.on('close', () => {
+    console.log('[WS] Frontend disconnected');
+  });
+});
+
+// Middleware подтверждения опасных действий
+async function requireConfirmation(action, description) {
+  return new Promise((resolve) => {
+    const actionId = Date.now().toString();
+    
+    pendingActions.set(actionId, { resolve, action, description });
+    
+    // Отправляем запрос на фронтенд
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({
+          type: 'ACTION_REQUIRED',
+          actionId,
+          action,
+          description,
+        }));
+      }
+    });
+    
+    // Таймаут 60 секунд
+    setTimeout(() => {
+      if (pendingActions.has(actionId)) {
+        pendingActions.delete(actionId);
+        resolve(false);
+      }
+    }, 60000);
+  });
+}
 
 // CORS headers
 const CORS_HEADERS = {
@@ -346,45 +405,28 @@ function searchSearXNG(query) {
   });
 }
 
-// Дополнительный поиск через HTML DuckDuckGo (для более сложных запросов)
-function searchInternetLite(query) {
-  return new Promise((resolve, reject) => {
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    
-    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => {
-        try {
-          const results = [];
-          
-          // Парсим результаты из HTML
-          const resultRegex = /<a rel="nofollow" class="result__a" href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
-          let match;
-          
-          while ((match = resultRegex.exec(data)) !== null && results.length < 8) {
-            const url = match[1].replace(/\/\/duckduckgo\.com\/l\/\?uddg=/, '').split('&')[0];
-            const title = match[2].replace(/<[^>]+>/g, '').trim();
-            const snippet = match[3].replace(/<[^>]+>/g, '').trim();
-            
-            if (title && snippet) {
-              results.push({ title, snippet, url: decodeURIComponent(url) });
-            }
-          }
-          
-          if (results.length === 0) {
-            resolve({ success: false, results: [], message: 'Ничего не найдено' });
-          } else {
-            resolve({ success: true, results });
-          }
-        } catch (e) {
-          reject(new Error('Ошибка парсинга: ' + e.message));
-        }
-      });
-    }).on('error', (e) => {
-      reject(new Error('Ошибка запроса: ' + e.message));
+// Фоллбэк поиск через duck-duck-scrape (npm пакет, не требует внешних сервисов)
+async function searchDuckDuckGoFallback(query) {
+  try {
+    const searchResults = await duckDuckScrape.search(query, {
+      safeSearch: 'off',
+      time: 'w', // последняя неделя
     });
-  });
+    
+    if (searchResults.results && searchResults.results.length > 0) {
+      const results = searchResults.results.slice(0, 5).map((r) => ({
+        title: r.title || 'Без названия',
+        snippet: r.description || r.body || '',
+        url: r.url || ''
+      }));
+      
+      return { success: true, results };
+    }
+    
+    return { success: false, results: [], message: 'Ничего не найдено' };
+  } catch (e) {
+    return { success: false, results: [], message: 'Ошибка: ' + e.message };
+  }
 }
 
 // MIME типы для статических файлов
@@ -517,6 +559,70 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // Поиск в базе знаний (векторный поиск)
+    if (pathname === '/api/knowledge/search' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.query) {
+        sendJson(res, 400, { error: 'Не указан поисковый запрос' });
+        return;
+      }
+      
+      try {
+        // Загружаем базу знаний из localStorage через файл
+        const knowledgeFile = path.join(__dirname, 'knowledge_base.json');
+        
+        if (!fs.existsSync(knowledgeFile)) {
+          sendJson(res, 200, { 
+            result: 'База знаний пуста. Добавьте документы через интерфейс.',
+            success: false 
+          });
+          return;
+        }
+        
+        const knowledge = JSON.parse(fs.readFileSync(knowledgeFile, 'utf-8'));
+        const topK = body.top_k || 3;
+        
+        // Простой поиск по ключевым словам (в будущем заменим на векторный поиск)
+        const queryWords = body.query.toLowerCase().split(/\s+/);
+        const results = knowledge
+          .map((item) => {
+            const content = (item.content || '').toLowerCase();
+            const title = (item.title || '').toLowerCase();
+            let score = 0;
+            
+            for (const word of queryWords) {
+              if (title.includes(word)) score += 2;
+              if (content.includes(word)) score += 1;
+            }
+            
+            return { ...item, score };
+          })
+          .filter((item) => item.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, topK);
+        
+        if (results.length > 0) {
+          const formatted = results.map((r, i) => 
+            `${i + 1}. ${r.title}\n   ${r.content?.slice(0, 500) || 'Нет содержимого'}...`
+          ).join('\n\n');
+          
+          sendJson(res, 200, {
+            result: `Найдено в базе знаний:\n\n${formatted}`,
+            success: true
+          });
+        } else {
+          sendJson(res, 200, {
+            result: 'В базе знаний не найдено релевантной информации.',
+            success: false
+          });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка поиска в базе знаний: ${err.message}` });
+      }
+      return;
+    }
+
     // Поиск в интернете
     if (pathname === '/api/search' && req.method === 'POST') {
       const body = await parseBody(req);
@@ -588,7 +694,12 @@ async function handleRequest(req, res) {
         }
         
         if (!result.success || result.results.length === 0) {
-          result = await searchInternetLite(body.query);
+          // Фоллбэк через duck-duck-scrape (не требует внешних сервисов)
+          try {
+            result = await searchDuckDuckGoFallback(body.query);
+          } catch (e) {
+            // Игнорируем ошибки
+          }
         }
         
         if (result.success && result.results.length > 0) {
@@ -722,10 +833,21 @@ async function handleRequest(req, res) {
       return;
     }
 
-    // Выключение ПК
+    // Выключение ПК (требует подтверждения)
     if (pathname === '/api/shutdown' && req.method === 'POST') {
       const body = await parseBody(req);
       const delay = body.delay || '5';
+      
+      // Запрашиваем подтверждение через WebSocket
+      const approved = await requireConfirmation(
+        'shutdown',
+        `Выключение компьютера через ${delay} секунд`
+      );
+      
+      if (!approved) {
+        sendJson(res, 200, { result: 'Действие отменено пользователем.', success: false });
+        return;
+      }
       
       let cmd;
       if (os.platform() === 'win32') {
@@ -737,14 +859,25 @@ async function handleRequest(req, res) {
       }
 
       exec(cmd);
-      sendJson(res, 200, { result: `Компьютер будет выключен через ${delay} секунд.` });
+      sendJson(res, 200, { result: `Компьютер будет выключен через ${delay} секунд.`, success: true });
       return;
     }
 
-    // Перезагрузка ПК
+    // Перезагрузка ПК (требует подтверждения)
     if (pathname === '/api/restart' && req.method === 'POST') {
       const body = await parseBody(req);
       const delay = body.delay || '5';
+      
+      // Запрашиваем подтверждение через WebSocket
+      const approved = await requireConfirmation(
+        'restart',
+        `Перезагрузка компьютера через ${delay} секунд`
+      );
+      
+      if (!approved) {
+        sendJson(res, 200, { result: 'Действие отменено пользователем.', success: false });
+        return;
+      }
       
       let cmd;
       if (os.platform() === 'win32') {
@@ -756,7 +889,7 @@ async function handleRequest(req, res) {
       }
 
       exec(cmd);
-      sendJson(res, 200, { result: `Компьютер будет перезагружен через ${delay} секунд.` });
+      sendJson(res, 200, { result: `Компьютер будет перезагружен через ${delay} секунд.`, success: true });
       return;
     }
 
