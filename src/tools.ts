@@ -186,13 +186,42 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'search_internet',
-      description: 'Найти информацию в интернете. Используй когда пользователь спрашивает о текущих событиях, курсе валют, погоде, новостях, или любой информации которую нужно найти онлайн.',
+      description: 'Найти информацию в интернете. Автоматически определяет запросы на курс валют и погоду. Используй когда пользователь спрашивает о текущих событиях, курсе валют, погоде, новостях, или любой информации которую нужно найти онлайн.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Поисковый запрос на русском или английском языке' },
+          query: { type: 'string', description: 'Поисковый запрос на русском или английском языке. Примеры: "курс доллара", "погода в Москве", "новости технологий"' },
         },
         required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_exchange_rate',
+      description: 'Получить актуальный курс валют. Используй когда пользователь спрашивает о курсе доллара, евро, рублей или любой другой валюты.',
+      parameters: {
+        type: 'object',
+        properties: {
+          from: { type: 'string', description: 'Код исходной валюты (например: USD, EUR, RUB)' },
+          to: { type: 'string', description: 'Код целевой валюты (например: USD, EUR, RUB)' },
+        },
+        required: ['from', 'to'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_weather',
+      description: 'Получить актуальную погоду в городе. Используй когда пользователь спрашивает о погоде.',
+      parameters: {
+        type: 'object',
+        properties: {
+          city: { type: 'string', description: 'Название города на русском или английском (например: Москва, Moscow, London)' },
+        },
+        required: ['city'],
       },
     },
   },
@@ -403,6 +432,34 @@ export async function executeTool(
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query: parsedArgs.query }),
+          });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'get_exchange_rate': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/exchange-rate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: parsedArgs.from, to: parsedArgs.to }),
+          });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'get_weather': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/weather`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ city: parsedArgs.city }),
           });
           const data = await res.json();
           return { name, content: data.result || data.error, success: res.ok };

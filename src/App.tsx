@@ -220,7 +220,7 @@ export default function App() {
 
         try {
           setStatusText('Анализирую запрос...');
-          const toolResponse = await sendOllamaMessageWithTools(
+          let toolResponse = await sendOllamaMessageWithTools(
             settings.ollamaUrl,
             settings.selectedModel,
             apiMessages,
@@ -231,45 +231,79 @@ export default function App() {
 
           // Проверяем есть ли tool calls
           if (toolResponse.message.tool_calls && toolResponse.message.tool_calls.length > 0) {
-            const toolMessages = [...apiMessages, toolResponse.message];
+            let toolMessages = [...apiMessages, toolResponse.message];
+            let hasMoreToolCalls = true;
+            let iterations = 0;
+            const maxIterations = 10; // Максимум 10 итераций для автоматической проверки кода
 
-            // Выполняем каждый tool call
-            for (const toolCall of toolResponse.message.tool_calls) {
-              const toolName = toolCall.function.name;
-              setStatusText(`⚡ Выполняю: ${toolName}...`);
+            // Цикл для автоматической проверки и исправления кода
+            while (hasMoreToolCalls && iterations < maxIterations) {
+              iterations++;
+              setStatusText(`⚡ Итерация ${iterations}: Выполняю инструменты...`);
 
-              const result = await executeTool(toolCall, async () => {
-                return captureScreen();
-              });
+              // Выполняем каждый tool call
+              const currentToolCalls = toolResponse.message.tool_calls || [];
+              for (const toolCall of currentToolCalls) {
+                const toolName = toolCall.function.name;
+                setStatusText(`⚡ Выполняю: ${toolName}...`);
 
-              // Добавляем сообщение о результате инструмента
-              const toolResultMsg: Message = {
-                id: generateId(),
-                role: 'tool',
-                content: result.content,
-                timestamp: new Date(),
-                toolName: result.name,
-                image: result.image,
-              };
-              addMessageToSession(sessionId!, toolResultMsg);
+                const result = await executeTool(toolCall, async () => {
+                  return captureScreen();
+                });
 
-              // Добавляем результат в контекст
-              toolMessages.push({
-                role: 'tool',
-                content: result.content,
-              });
+                // Добавляем сообщение о результате инструмента
+                const toolResultMsg: Message = {
+                  id: generateId(),
+                  role: 'tool',
+                  content: result.content,
+                  timestamp: new Date(),
+                  toolName: result.name,
+                  image: result.image,
+                };
+                addMessageToSession(sessionId!, toolResultMsg);
+
+                // Добавляем результат в контекст
+                toolMessages.push({
+                  role: 'tool',
+                  content: result.content,
+                });
+              }
+
+              // Отправляем результаты обратно в AI для проверки
+              setStatusText('Анализирую результаты...');
+              const nextResponse = await sendOllamaMessageWithTools(
+                settings.ollamaUrl,
+                settings.selectedModel,
+                toolMessages,
+                TOOL_DEFINITIONS,
+                settings.temperature,
+                controller.signal
+              );
+
+              // Проверяем есть ли ещё tool calls
+              if (nextResponse.message.tool_calls && nextResponse.message.tool_calls.length > 0) {
+                toolMessages.push(nextResponse.message);
+                toolResponse = nextResponse;
+              } else {
+                // Нет больше tool calls - получаем финальный ответ
+                hasMoreToolCalls = false;
+                finalResponse = nextResponse.message.content;
+                
+                // Стримим финальный ответ
+                if (finalResponse) {
+                  setStreamingContent(finalResponse);
+                }
+              }
             }
 
-            // Финальный запрос с результатами инструментов — стримим ответ
-            setStatusText('Формирую ответ...');
-            finalResponse = await sendOllamaMessage(
-              settings.ollamaUrl,
-              settings.selectedModel,
-              toolMessages,
-              settings.temperature,
-              (chunk) => setStreamingContent((prev) => prev + chunk),
-              controller.signal
-            );
+            // Если достигли лимита итераций
+            if (iterations >= maxIterations && hasMoreToolCalls) {
+              setStatusText('Достигнут лимит итераций');
+              finalResponse = toolResponse.message.content || 'Достигнут лимит автоматических проверок.';
+              if (finalResponse) {
+                setStreamingContent(finalResponse);
+              }
+            }
           } else {
             // Нет tool calls — показываем ответ сразу
             finalResponse = toolResponse.message.content;

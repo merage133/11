@@ -203,7 +203,7 @@ function searchWikipedia(query) {
             json.query.search.forEach((item) => {
               results.push({
                 title: item.title,
-                snippet: item.snippet.replace(/<[^>]+>/g, ''), // Убираем HTML теги
+                snippet: item.snippet.replace(/<[^>]+>/g, ''),
                 url: `https://ru.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, '_'))}`
               });
             });
@@ -216,6 +216,74 @@ function searchWikipedia(query) {
       });
     }).on('error', (e) => {
       reject(new Error('Ошибка запроса Wikipedia: ' + e.message));
+    });
+  });
+}
+
+// Получение курса валют через бесплатный API
+function getExchangeRate(from, to) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.exchangerate-api.com/v4/latest/${from.toUpperCase()}`;
+    
+    https.get(url, { headers: { 'User-Agent': 'RU-AI-Studio/1.0' } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.rates && json.rates[to.toUpperCase()]) {
+            resolve({
+              success: true,
+              rate: json.rates[to.toUpperCase()],
+              from: from.toUpperCase(),
+              to: to.toUpperCase(),
+              date: json.date
+            });
+          } else {
+            resolve({ success: false, error: 'Валюта не найдена' });
+          }
+        } catch (e) {
+          reject(new Error('Ошибка парсинга: ' + e.message));
+        }
+      });
+    }).on('error', (e) => {
+      reject(new Error('Ошибка запроса: ' + e.message));
+    });
+  });
+}
+
+// Получение погоды через wttr.in (без API ключа)
+function getWeather(city) {
+  return new Promise((resolve, reject) => {
+    const url = `https://wttr.in/${encodeURIComponent(city)}?format=j1&lang=ru`;
+    
+    https.get(url, { headers: { 'User-Agent': 'RU-AI-Studio/1.0' } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.current_condition && json.current_condition[0]) {
+            const current = json.current_condition[0];
+            resolve({
+              success: true,
+              city: city,
+              temp: current.temp_C,
+              feels_like: current.FeelsLikeC,
+              description: current.lang_ru && current.lang_ru[0] ? current.lang_ru[0].value : current.weatherDesc[0].value,
+              humidity: current.humidity,
+              wind_speed: current.windspeedKmph,
+              wind_dir: current.winddir16Point
+            });
+          } else {
+            resolve({ success: false, error: 'Город не найден' });
+          }
+        } catch (e) {
+          reject(new Error('Ошибка парсинга: ' + e.message));
+        }
+      });
+    }).on('error', (e) => {
+      reject(new Error('Ошибка запроса: ' + e.message));
     });
   });
 }
@@ -399,6 +467,56 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // Получение курса валют
+    if (pathname === '/api/exchange-rate' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.from || !body.to) {
+        sendJson(res, 400, { error: 'Не указаны валюты' });
+        return;
+      }
+      
+      try {
+        const result = await getExchangeRate(body.from, body.to);
+        if (result.success) {
+          sendJson(res, 200, {
+            result: `Курс ${result.from} к ${result.to}: ${result.rate}\nДата: ${result.date}`,
+            success: true
+          });
+        } else {
+          sendJson(res, 200, { result: result.error, success: false });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка получения курса: ${err.message}` });
+      }
+      return;
+    }
+
+    // Получение погоды
+    if (pathname === '/api/weather' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.city) {
+        sendJson(res, 400, { error: 'Не указан город' });
+        return;
+      }
+      
+      try {
+        const result = await getWeather(body.city);
+        if (result.success) {
+          sendJson(res, 200, {
+            result: `Погода в городе ${result.city}:\nТемпература: ${result.temp}°C (ощущается как ${result.feels_like}°C)\nОписание: ${result.description}\nВлажность: ${result.humidity}%\nВетер: ${result.wind_speed} км/ч, ${result.wind_dir}`,
+            success: true
+          });
+        } else {
+          sendJson(res, 200, { result: result.error, success: false });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка получения погоды: ${err.message}` });
+      }
+      return;
+    }
+
     // Поиск в интернете
     if (pathname === '/api/search' && req.method === 'POST') {
       const body = await parseBody(req);
@@ -409,38 +527,73 @@ async function handleRequest(req, res) {
       }
       
       try {
-        // Сначала пробуем SearXNG (мета-поисковик с Google, Bing, DuckDuckGo)
+        // Проверяем запрос на курс валют
+        const currencyMatch = body.query.match(/курс\s+(\w+)\s+(?:к|в)\s+(\w+)/i) || 
+                              body.query.match(/(\w+)\s+to\s+(\w+)/i) ||
+                              body.query.match(/(\w{3})\s*\/?\s*(\w{3})/i);
+        
+        if (currencyMatch) {
+          const from = currencyMatch[1];
+          const to = currencyMatch[2];
+          try {
+            const rateResult = await getExchangeRate(from, to);
+            if (rateResult.success) {
+              sendJson(res, 200, {
+                result: `Курс ${rateResult.from} к ${rateResult.to}: ${rateResult.rate}\nДата: ${rateResult.date}`,
+                success: true
+              });
+              return;
+            }
+          } catch (e) {
+            // Продолжаем обычный поиск
+          }
+        }
+        
+        // Проверяем запрос на погоду
+        const weatherMatch = body.query.match(/погода\s+(?:в|г\.|город)\s+(.+)/i) ||
+                             body.query.match(/weather\s+(?:in|for)\s+(.+)/i);
+        
+        if (weatherMatch) {
+          const city = weatherMatch[1].trim();
+          try {
+            const weatherResult = await getWeather(city);
+            if (weatherResult.success) {
+              sendJson(res, 200, {
+                result: weatherResult.result,
+                success: true
+              });
+              return;
+            }
+          } catch (e) {
+            // Продолжаем обычный поиск
+          }
+        }
+        
+        // Обычный поиск
         let result = await searchSearXNG(body.query);
         
-        // Если ничего не найдено, пробуем Wikipedia
         if (!result.success || result.results.length === 0) {
           try {
             const wikiResult = await searchWikipedia(body.query);
             if (wikiResult.success && wikiResult.results.length > 0) {
               result = wikiResult;
             }
-          } catch (wikiError) {
-            // Игнорируем ошибки Wikipedia
-          }
+          } catch (wikiError) {}
         }
         
-        // Если все еще ничего не найдено, пробуем DuckDuckGo Instant Answer
         if (!result.success || result.results.length === 0) {
           try {
             result = await searchInternet(body.query);
-          } catch (ddgError) {
-            // Игнорируем ошибки
-          }
+          } catch (ddgError) {}
         }
         
-        // Если все еще ничего не найдено, пробуем HTML поиск
         if (!result.success || result.results.length === 0) {
           result = await searchInternetLite(body.query);
         }
         
         if (result.success && result.results.length > 0) {
           const formatted = result.results.map((r, i) => 
-            `${i + 1}. ${r.title}\n   ${r.snippet}\n   URL: ${r.url}`
+            `${i + 1}. ${r.title}\n   ${r.snippet}`
           ).join('\n\n');
           
           sendJson(res, 200, { 
