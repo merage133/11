@@ -1,0 +1,1540 @@
+/**
+ * RU AI Studio — Локальный сервер для системных команд
+ * 
+ * Запуск: node server.cjs
+ * 
+ * Этот сервер даёт AI доступ к:
+ * - Файловой системе
+ * - Выполнению команд
+ * - Управлению компьютером (выключение/перезагрузка)
+ * - Автоматизации браузера (через puppeteer, если установлен)
+ */
+
+const http = require('http');
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { exec, execSync } = require('child_process');
+const WebSocket = require('ws');
+const duckDuckScrape = require('duck-duck-scrape');
+const clipboardy = require('clipboardy');
+const si = require('systeminformation');
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
+
+const PORT = 3001;
+const HOST = '127.0.0.1'; // Только локальный доступ
+
+// Песочница для всех файлов и команд
+const WORKSPACE = path.join(__dirname, 'ai_workspace');
+if (!fs.existsSync(WORKSPACE)) {
+  fs.mkdirSync(WORKSPACE, { recursive: true });
+}
+
+// Файл для долговременной памяти
+const MEMORY_FILE = path.join(__dirname, 'memory.json');
+if (!fs.existsSync(MEMORY_FILE)) {
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify({}, null, 2));
+}
+
+// Функция загрузки памяти
+function loadMemory() {
+  try {
+    return JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+// Функция сохранения памяти
+function saveMemory(memory) {
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+}
+
+// WebSocket сервер для подтверждения опасных действий
+const wss = new WebSocket.Server({ port: 3002 });
+const pendingActions = new Map();
+
+wss.on('connection', (ws) => {
+  console.log('[WS] Frontend connected');
+  
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      
+      if (data.type === 'ACTION_RESPONSE') {
+        const pending = pendingActions.get(data.actionId);
+        if (pending) {
+          pending.resolve(data.approved);
+          pendingActions.delete(data.actionId);
+        }
+      }
+    } catch (e) {
+      console.error('[WS] Error:', e.message);
+    }
+  });
+  
+  ws.on('close', () => {
+    console.log('[WS] Frontend disconnected');
+  });
+});
+
+// Middleware подтверждения опасных действий
+async function requireConfirmation(action, description) {
+  return new Promise((resolve) => {
+    const actionId = Date.now().toString();
+    
+    pendingActions.set(actionId, { resolve, action, description });
+    
+    // Отправляем запрос на фронтенд
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({
+          type: 'ACTION_REQUIRED',
+          actionId,
+          action,
+          description,
+        }));
+      }
+    });
+    
+    // Таймаут 60 секунд
+    setTimeout(() => {
+      if (pendingActions.has(actionId)) {
+        pendingActions.delete(actionId);
+        resolve(false);
+      }
+    }, 60000);
+  });
+}
+
+// CORS headers
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json',
+};
+
+// Парсинг JSON тела запроса
+function parseBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      try {
+        // Обрабатываем пустое тело
+        if (!body || body.trim() === '') {
+          resolve({});
+        } else {
+          resolve(JSON.parse(body));
+        }
+      } catch (e) {
+        reject(new Error(`Ошибка парсинга JSON: ${e.message}`));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+// Отправка JSON ответа
+function sendJson(res, statusCode, data) {
+  res.writeHead(statusCode, CORS_HEADERS);
+  res.end(JSON.stringify(data));
+}
+
+// Выполнение shell-команды
+function runCommand(cmd, timeout = 30000) {
+  return new Promise((resolve) => {
+    exec(cmd, { timeout, maxBuffer: 1024 * 1024 * 5 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false, output: stderr || error.message });
+      } else {
+        resolve({ success: true, output: stdout });
+      }
+    });
+  });
+}
+
+// Безопасная проверка пути (не даём выходить за пределы)
+function safePath(inputPath) {
+  // Разрешаем абсолютные пути — пользователь сам решает
+  return path.resolve(inputPath);
+}
+
+// Поиск в интернете через DuckDuckGo (бесплатно, без API ключа)
+function searchInternet(query) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+    
+    https.get(url, { headers: { 'User-Agent': 'RU-AI-Studio/1.0' } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const results = [];
+          
+          // Основной ответ
+          if (json.AbstractText) {
+            results.push({
+              title: json.Heading || 'Результат',
+              snippet: json.AbstractText,
+              url: json.AbstractURL || ''
+            });
+          }
+          
+          // Ответ из других источников
+          if (json.Answer) {
+            results.push({
+              title: 'Быстрый ответ',
+              snippet: json.Answer,
+              url: json.AnswerURL || ''
+            });
+          }
+          
+          // Определения
+          if (json.Definition) {
+            results.push({
+              title: 'Определение',
+              snippet: json.Definition,
+              url: json.DefinitionURL || ''
+            });
+          }
+          
+          // Связанные темы
+          if (json.RelatedTopics && json.RelatedTopics.length > 0) {
+            json.RelatedTopics.slice(0, 5).forEach((topic) => {
+              if (topic.Text) {
+                results.push({
+                  title: topic.FirstURL ? topic.FirstURL.split('/').pop() : 'Результат',
+                  snippet: topic.Text,
+                  url: topic.FirstURL || ''
+                });
+              }
+            });
+          }
+          
+          if (results.length === 0) {
+            resolve({ success: false, results: [], message: 'Ничего не найдено' });
+          } else {
+            resolve({ success: true, results });
+          }
+        } catch (e) {
+          reject(new Error('Ошибка парсинга результатов: ' + e.message));
+        }
+      });
+    }).on('error', (e) => {
+      reject(new Error('Ошибка запроса: ' + e.message));
+    });
+  });
+}
+
+// Получение содержимого URL
+function fetchUrlContent(url) {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith('https') ? https : http;
+    
+    client.get(url, { 
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' 
+      } 
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          // Извлекаем title
+          const titleMatch = data.match(/<title[^>]*>([^<]+)<\/title>/i);
+          const title = titleMatch ? titleMatch[1].trim() : url;
+          
+          // Извлекаем основной текст (упрощенно)
+          const bodyMatch = data.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+          let content = '';
+          
+          if (bodyMatch) {
+            // Убираем скрипты и стили
+            content = bodyMatch[1]
+              .replace(/<script[\s\S]*?<\/script>/gi, '')
+              .replace(/<style[\s\S]*?<\/style>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 5000); // Ограничиваем размер
+          }
+          
+          resolve({ title, content: content || 'Не удалось извлечь содержимое' });
+        } catch (e) {
+          reject(new Error('Ошибка парсинга: ' + e.message));
+        }
+      });
+    }).on('error', (e) => {
+      reject(new Error('Ошибка запроса: ' + e.message));
+    });
+  });
+}
+
+// Поиск через Wikipedia API
+function searchWikipedia(query) {
+  return new Promise((resolve, reject) => {
+    const url = `https://ru.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=3`;
+    
+    https.get(url, { headers: { 'User-Agent': 'RU-AI-Studio/1.0' } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const results = [];
+          
+          if (json.query && json.query.search && json.query.search.length > 0) {
+            json.query.search.forEach((item) => {
+              results.push({
+                title: item.title,
+                snippet: item.snippet.replace(/<[^>]+>/g, ''),
+                url: `https://ru.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, '_'))}`
+              });
+            });
+          }
+          
+          resolve({ success: results.length > 0, results });
+        } catch (e) {
+          reject(new Error('Ошибка парсинга Wikipedia: ' + e.message));
+        }
+      });
+    }).on('error', (e) => {
+      reject(new Error('Ошибка запроса Wikipedia: ' + e.message));
+    });
+  });
+}
+
+// Получение курса валют через бесплатный API
+function getExchangeRate(from, to) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.exchangerate-api.com/v4/latest/${from.toUpperCase()}`;
+    
+    https.get(url, { headers: { 'User-Agent': 'RU-AI-Studio/1.0' } }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.rates && json.rates[to.toUpperCase()]) {
+            resolve({
+              success: true,
+              rate: json.rates[to.toUpperCase()],
+              from: from.toUpperCase(),
+              to: to.toUpperCase(),
+              date: json.date
+            });
+          } else {
+            resolve({ success: false, error: 'Валюта не найдена' });
+          }
+        } catch (e) {
+          reject(new Error('Ошибка парсинга: ' + e.message));
+        }
+      });
+    }).on('error', (e) => {
+      reject(new Error('Ошибка запроса: ' + e.message));
+    });
+  });
+}
+
+// Получение погоды через wttr.in (без API ключа) с retry
+function getWeather(city, retries = 3) {
+  return new Promise((resolve, reject) => {
+    const url = `https://wttr.in/${encodeURIComponent(city)}?format=j1&lang=ru`;
+    
+    const makeRequest = (attempt) => {
+      const req = https.get(url, { 
+        headers: { 'User-Agent': 'MirageAI/2.3' },
+        timeout: 10000
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => data += chunk);
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            if (json.current_condition && json.current_condition[0]) {
+              const current = json.current_condition[0];
+              resolve({
+                success: true,
+                city: city,
+                temp: current.temp_C,
+                feels_like: current.FeelsLikeC,
+                description: current.lang_ru && current.lang_ru[0] ? current.lang_ru[0].value : current.weatherDesc[0].value,
+                humidity: current.humidity,
+                wind_speed: current.windspeedKmph,
+                wind_dir: current.winddir16Point
+              });
+            } else {
+              resolve({ success: false, error: 'Город не найден' });
+            }
+          } catch (e) {
+            if (attempt < retries) {
+              setTimeout(() => makeRequest(attempt + 1), 1000);
+            } else {
+              reject(new Error('Ошибка парсинга: ' + e.message));
+            }
+          }
+        });
+      });
+      
+      req.on('error', (e) => {
+        if (attempt < retries) {
+          setTimeout(() => makeRequest(attempt + 1), 1000);
+        } else {
+          reject(new Error('Ошибка запроса после ' + retries + ' попыток: ' + e.message));
+        }
+      });
+      
+      req.on('timeout', () => {
+        req.destroy();
+        if (attempt < retries) {
+          setTimeout(() => makeRequest(attempt + 1), 1000);
+        } else {
+          reject(new Error('Таймаут после ' + retries + ' попыток'));
+        }
+      });
+    };
+    
+    makeRequest(1);
+  });
+}
+
+// Поиск через SearXNG (мета-поисковик, агрегирует Google, Bing, DuckDuckGo)
+function searchSearXNG(query) {
+  return new Promise((resolve, reject) => {
+    // Используем публичные инстансы SearXNG
+    const instances = [
+      'https://search.bus-hit.me',
+      'https://searx.be',
+      'https://search.ononoki.org'
+    ];
+    
+    const tryInstance = (index) => {
+      if (index >= instances.length) {
+        resolve({ success: false, results: [] });
+        return;
+      }
+      
+      const url = `${instances[index]}/search?q=${encodeURIComponent(query)}&format=json&language=ru`;
+      
+      https.get(url, { 
+        headers: { 
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' 
+        } 
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => data += chunk);
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            const results = [];
+            
+            if (json.results && json.results.length > 0) {
+              json.results.slice(0, 5).forEach((item) => {
+                results.push({
+                  title: item.title || 'Без названия',
+                  snippet: item.content || '',
+                  url: item.url || ''
+                });
+              });
+            }
+            
+            if (results.length > 0) {
+              resolve({ success: true, results });
+            } else {
+              tryInstance(index + 1);
+            }
+          } catch (e) {
+            tryInstance(index + 1);
+          }
+        });
+      }).on('error', () => {
+        tryInstance(index + 1);
+      });
+    };
+    
+    tryInstance(0);
+  });
+}
+
+// Фоллбэк поиск через duck-duck-scrape (npm пакет, не требует внешних сервисов)
+async function searchDuckDuckGoFallback(query) {
+  try {
+    const searchResults = await duckDuckScrape.search(query, {
+      safeSearch: 'off',
+      time: 'w', // последняя неделя
+    });
+    
+    if (searchResults.results && searchResults.results.length > 0) {
+      const results = searchResults.results.slice(0, 5).map((r) => ({
+        title: r.title || 'Без названия',
+        snippet: r.description || r.body || '',
+        url: r.url || ''
+      }));
+      
+      return { success: true, results };
+    }
+    
+    return { success: false, results: [], message: 'Ничего не найдено' };
+  } catch (e) {
+    return { success: false, results: [], message: 'Ошибка: ' + e.message };
+  }
+}
+
+// MIME типы для статических файлов
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
+
+// Отдача статических файлов из dist/
+function serveStatic(req, res) {
+  let filePath = req.url === '/' ? '/index.html' : req.url;
+  filePath = path.join(__dirname, 'dist', filePath);
+  
+  // Защита от выхода за пределы папки
+  if (!filePath.startsWith(path.join(__dirname, 'dist'))) {
+    res.writeHead(403, CORS_HEADERS);
+    res.end('Forbidden');
+    return true;
+  }
+  
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    const content = fs.readFileSync(filePath);
+    res.writeHead(200, { ...CORS_HEADERS, 'Content-Type': contentType });
+    res.end(content);
+    return true;
+  }
+  return false;
+}
+
+// Обработка запросов
+async function handleRequest(req, res) {
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    sendJson(res, 200, {});
+    return;
+  }
+
+  const url = new URL(req.url, `http://${HOST}:${PORT}`);
+  const pathname = url.pathname;
+
+  // Сначала пробуем отдать статический файл
+  if (!pathname.startsWith('/api/')) {
+    if (serveStatic(req, res)) return;
+  }
+
+  try {
+    // Health check
+    if (pathname === '/api/health') {
+      sendJson(res, 200, { status: 'ok', platform: os.platform(), uptime: process.uptime() });
+      return;
+    }
+
+    // Получение содержимого URL
+    if (pathname === '/api/fetch-url' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.url) {
+        sendJson(res, 400, { error: 'Не указан URL' });
+        return;
+      }
+      
+      try {
+        const result = await fetchUrlContent(body.url);
+        sendJson(res, 200, result);
+      } catch (err) {
+        sendJson(res, 500, { error: err.message });
+      }
+      return;
+    }
+
+    // Получение курса валют
+    if (pathname === '/api/exchange-rate' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.from || !body.to) {
+        sendJson(res, 400, { error: 'Не указаны валюты' });
+        return;
+      }
+      
+      try {
+        const result = await getExchangeRate(body.from, body.to);
+        if (result.success) {
+          sendJson(res, 200, {
+            result: `Курс ${result.from} к ${result.to}: ${result.rate}\nДата: ${result.date}`,
+            success: true
+          });
+        } else {
+          sendJson(res, 200, { result: result.error, success: false });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка получения курса: ${err.message}` });
+      }
+      return;
+    }
+
+    // Получение погоды
+    if (pathname === '/api/weather' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.city) {
+        sendJson(res, 400, { error: 'Не указан город' });
+        return;
+      }
+      
+      try {
+        const result = await getWeather(body.city);
+        if (result.success) {
+          sendJson(res, 200, {
+            result: `Погода в городе ${result.city}:\nТемпература: ${result.temp}°C (ощущается как ${result.feels_like}°C)\nОписание: ${result.description}\nВлажность: ${result.humidity}%\nВетер: ${result.wind_speed} км/ч, ${result.wind_dir}`,
+            success: true
+          });
+        } else {
+          sendJson(res, 200, { result: result.error, success: false });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка получения погоды: ${err.message}` });
+      }
+      return;
+    }
+
+    // Поиск в базе знаний (векторный поиск)
+    if (pathname === '/api/knowledge/search' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.query) {
+        sendJson(res, 400, { error: 'Не указан поисковый запрос' });
+        return;
+      }
+      
+      try {
+        // Загружаем базу знаний из localStorage через файл
+        const knowledgeFile = path.join(__dirname, 'knowledge_base.json');
+        
+        if (!fs.existsSync(knowledgeFile)) {
+          sendJson(res, 200, { 
+            result: 'База знаний пуста. Добавьте документы через интерфейс.',
+            success: false 
+          });
+          return;
+        }
+        
+        const knowledge = JSON.parse(fs.readFileSync(knowledgeFile, 'utf-8'));
+        const topK = body.top_k || 3;
+        
+        // Простой поиск по ключевым словам (в будущем заменим на векторный поиск)
+        const queryWords = body.query.toLowerCase().split(/\s+/);
+        const results = knowledge
+          .map((item) => {
+            const content = (item.content || '').toLowerCase();
+            const title = (item.title || '').toLowerCase();
+            let score = 0;
+            
+            for (const word of queryWords) {
+              if (title.includes(word)) score += 2;
+              if (content.includes(word)) score += 1;
+            }
+            
+            return { ...item, score };
+          })
+          .filter((item) => item.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, topK);
+        
+        if (results.length > 0) {
+          const formatted = results.map((r, i) => 
+            `${i + 1}. ${r.title}\n   ${r.content?.slice(0, 500) || 'Нет содержимого'}...`
+          ).join('\n\n');
+          
+          sendJson(res, 200, {
+            result: `Найдено в базе знаний:\n\n${formatted}`,
+            success: true
+          });
+        } else {
+          sendJson(res, 200, {
+            result: 'В базе знаний не найдено релевантной информации.',
+            success: false
+          });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка поиска в базе знаний: ${err.message}` });
+      }
+      return;
+    }
+
+    // Поиск в интернете
+    if (pathname === '/api/search' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.query) {
+        sendJson(res, 400, { error: 'Не указан поисковый запрос' });
+        return;
+      }
+      
+      try {
+        // Проверяем запрос на курс валют
+        const currencyMatch = body.query.match(/курс\s+(\w+)\s+(?:к|в)\s+(\w+)/i) || 
+                              body.query.match(/(\w+)\s+to\s+(\w+)/i) ||
+                              body.query.match(/(\w{3})\s*\/?\s*(\w{3})/i);
+        
+        if (currencyMatch) {
+          const from = currencyMatch[1];
+          const to = currencyMatch[2];
+          try {
+            const rateResult = await getExchangeRate(from, to);
+            if (rateResult.success) {
+              sendJson(res, 200, {
+                result: `Курс ${rateResult.from} к ${rateResult.to}: ${rateResult.rate}\nДата: ${rateResult.date}`,
+                success: true
+              });
+              return;
+            }
+          } catch (e) {
+            // Продолжаем обычный поиск
+          }
+        }
+        
+        // Проверяем запрос на погоду
+        const weatherMatch = body.query.match(/погода\s+(?:в|г\.|город)\s+(.+)/i) ||
+                             body.query.match(/weather\s+(?:in|for)\s+(.+)/i);
+        
+        if (weatherMatch) {
+          const city = weatherMatch[1].trim();
+          try {
+            const weatherResult = await getWeather(city);
+            if (weatherResult.success) {
+              sendJson(res, 200, {
+                result: weatherResult.result,
+                success: true
+              });
+              return;
+            }
+          } catch (e) {
+            // Продолжаем обычный поиск
+          }
+        }
+        
+        // Обычный поиск
+        let result = await searchSearXNG(body.query);
+        
+        if (!result.success || result.results.length === 0) {
+          try {
+            const wikiResult = await searchWikipedia(body.query);
+            if (wikiResult.success && wikiResult.results.length > 0) {
+              result = wikiResult;
+            }
+          } catch (wikiError) {}
+        }
+        
+        if (!result.success || result.results.length === 0) {
+          try {
+            result = await searchInternet(body.query);
+          } catch (ddgError) {}
+        }
+        
+        if (!result.success || result.results.length === 0) {
+          // Фоллбэк через duck-duck-scrape (не требует внешних сервисов)
+          try {
+            result = await searchDuckDuckGoFallback(body.query);
+          } catch (e) {
+            // Игнорируем ошибки
+          }
+        }
+        
+        if (result.success && result.results.length > 0) {
+          const formatted = result.results.map((r, i) => 
+            `${i + 1}. ${r.title}\n   ${r.snippet}`
+          ).join('\n\n');
+          
+          sendJson(res, 200, { 
+            result: `Результаты поиска по запросу "${body.query}":\n\n${formatted}`,
+            success: true 
+          });
+        } else {
+          sendJson(res, 200, { 
+            result: `По запросу "${body.query}" ничего не найдено.`,
+            success: false 
+          });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка поиска: ${err.message}` });
+      }
+      return;
+    }
+
+    // Системная информация
+    if (pathname === '/api/system-info' && req.method === 'GET') {
+      const cpus = os.cpus();
+      const totalMem = os.totalmem();
+      const freeMem = os.freemem();
+      const disks = os.platform() === 'win32' 
+        ? await runCommand('wmic logicaldisk get size,freespace,caption')
+        : await runCommand('df -h /');
+
+      sendJson(res, 200, {
+        result: [
+          `ОС: ${os.type()} ${os.release()} (${os.platform()})`,
+          `Хост: ${os.hostname()}`,
+          `Архитектура: ${os.arch()}`,
+          `CPU: ${cpus[0]?.model || 'N/A'} x${cpus.length}`,
+          `RAM: ${(totalMem / 1024 / 1024 / 1024).toFixed(1)} GB (свободно: ${(freeMem / 1024 / 1024 / 1024).toFixed(1)} GB)`,
+          `Домашняя папка: ${os.homedir()}`,
+          `Диски: ${disks.output.trim()}`,
+          `Время работы: ${(os.uptime() / 3600).toFixed(1)} часов`,
+        ].join('\n'),
+      });
+      return;
+    }
+
+    // Список файлов
+    if (pathname === '/api/files' && req.method === 'POST') {
+      const body = await parseBody(req);
+      let dirPath = body.path || os.homedir();
+      
+      // Обработка относительных путей
+      if (dirPath === '/' || dirPath === '~' || dirPath === '.') {
+        dirPath = os.homedir();
+      }
+      dirPath = safePath(dirPath);
+
+      try {
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        const files = entries.map((entry) => ({
+          name: entry.name,
+          type: entry.isDirectory() ? 'folder' : 'file',
+          path: path.join(dirPath, entry.name),
+          size: entry.isFile() ? fs.statSync(path.join(dirPath, entry.name)).size : null,
+        }));
+
+        sendJson(res, 200, {
+          result: `Папка: ${dirPath}\n\n${files.map((f) => `${f.type === 'folder' ? '📁' : '📄'} ${f.name}${f.size ? ` (${(f.size / 1024).toFixed(1)} KB)` : ''}`).join('\n')}`,
+        });
+      } catch (err) {
+        sendJson(res, 400, { error: `Ошибка чтения папки: ${err.message}` });
+      }
+      return;
+    }
+
+    // Чтение файла
+    if (pathname === '/api/file/read' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.path) {
+        sendJson(res, 400, { error: 'Не указан путь файла' });
+        return;
+      }
+      
+      // Чтение только из песочницы
+      const filePath = path.resolve(WORKSPACE, body.path);
+      
+      // Проверка что путь внутри песочницы
+      if (!filePath.startsWith(WORKSPACE)) {
+        sendJson(res, 403, { error: 'Доступ запрещён. Все файлы должны быть в ./ai_workspace' });
+        return;
+      }
+      
+      if (!fs.existsSync(filePath)) {
+        sendJson(res, 404, { error: `Файл не найден: ${filePath}` });
+        return;
+      }
+      
+      const stat = fs.statSync(filePath);
+      if (stat.size > 1024 * 1024) { // 1 MB limit
+        sendJson(res, 200, { result: `[Файл слишком большой: ${(stat.size / 1024 / 1024).toFixed(1)} MB. Прочитаны первые 100 KB]\n\n${fs.readFileSync(filePath, 'utf-8').slice(0, 100000)}`, success: true });
+      } else {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        sendJson(res, 200, { result: content, success: true });
+      }
+      return;
+    }
+
+    // Запись файла
+    if (pathname === '/api/file/write' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.path) {
+        sendJson(res, 400, { error: 'Не указан путь файла' });
+        return;
+      }
+      
+      // Все файлы создаются ТОЛЬКО в песочнице
+      const filePath = path.resolve(WORKSPACE, body.path);
+      
+      // Проверка что путь внутри песочницы
+      if (!filePath.startsWith(WORKSPACE)) {
+        sendJson(res, 403, { error: 'Доступ запрещён. Все файлы должны быть в ./ai_workspace' });
+        return;
+      }
+      
+      try {
+        // Создаём директорию если не существует
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        
+        fs.writeFileSync(filePath, body.content || '', 'utf-8');
+        sendJson(res, 200, { result: `Файл записан: ${filePath} (${(body.content || '').length} символов)`, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка записи файла: ${err.message}` });
+      }
+      return;
+    }
+
+    // Выполнение команды (с песочницей и таймаутом)
+    if (pathname === '/api/command' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.command) {
+        sendJson(res, 400, { error: 'Не указана команда' });
+        return;
+      }
+      
+      // Ограничиваем выполнение 30 секундами
+      return new Promise((resolve) => {
+        const child = exec(body.command, { 
+          cwd: WORKSPACE, 
+          timeout: 30000,
+          maxBuffer: 1024 * 1024 * 5
+        }, (error, stdout, stderr) => {
+          const exitCode = error ? (error.code || 1) : 0;
+          const isFailure = exitCode !== 0 || (stderr && stderr.trim().length > 0);
+          
+          const resultReport = `
+=== ОТЧЕТ О ВЫПОЛНЕНИИ КОМАНДЫ ===
+Команда: ${body.command}
+Рабочая папка: ${WORKSPACE}
+Статус: ${isFailure ? '❌ ОШИБКА' : '✅ УСПЕХ'}
+Exit Code: ${exitCode}
+
+--- STDOUT (Вывод программы) ---
+${(stdout || '').trim() || '(пусто)'}
+
+--- STDERR (Ошибки) ---
+${(stderr || '').trim() || '(пусто)'}
+
+ИНСТРУКЦИЯ ДЛЯ AI: 
+Если статус 'ОШИБКА', ты ОБЯЗАН проанализировать раздел STDERR, исправить код с помощью write_file и запустить команду снова. Не отвечай пользователю, пока не исправишь ошибку (максимум 3 попытки).
+================================
+          `.trim();
+          
+          resolve();
+          sendJson(res, 200, {
+            result: resultReport,
+            success: !isFailure,
+            exitCode,
+            stdout: stdout || '',
+            stderr: stderr || ''
+          });
+        });
+      });
+    }
+
+    // Выключение ПК (требует подтверждения)
+    if (pathname === '/api/shutdown' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const delay = body.delay || '5';
+      
+      // Запрашиваем подтверждение через WebSocket
+      const approved = await requireConfirmation(
+        'shutdown',
+        `Выключение компьютера через ${delay} секунд`
+      );
+      
+      if (!approved) {
+        sendJson(res, 200, { result: 'Действие отменено пользователем.', success: false });
+        return;
+      }
+      
+      let cmd;
+      if (os.platform() === 'win32') {
+        cmd = `shutdown /s /t ${delay}`;
+      } else if (os.platform() === 'darwin') {
+        cmd = `sudo shutdown -h +${Math.ceil(parseInt(delay) / 60)}`;
+      } else {
+        cmd = `shutdown -h +${Math.ceil(parseInt(delay) / 60)}`;
+      }
+
+      exec(cmd);
+      sendJson(res, 200, { result: `Компьютер будет выключен через ${delay} секунд.`, success: true });
+      return;
+    }
+
+    // Перезагрузка ПК (требует подтверждения)
+    if (pathname === '/api/restart' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const delay = body.delay || '5';
+      
+      // Запрашиваем подтверждение через WebSocket
+      const approved = await requireConfirmation(
+        'restart',
+        `Перезагрузка компьютера через ${delay} секунд`
+      );
+      
+      if (!approved) {
+        sendJson(res, 200, { result: 'Действие отменено пользователем.', success: false });
+        return;
+      }
+      
+      let cmd;
+      if (os.platform() === 'win32') {
+        cmd = `shutdown /r /t ${delay}`;
+      } else if (os.platform() === 'darwin') {
+        cmd = `sudo shutdown -r +${Math.ceil(parseInt(delay) / 60)}`;
+      } else {
+        cmd = `shutdown -r +${Math.ceil(parseInt(delay) / 60)}`;
+      }
+
+      exec(cmd);
+      sendJson(res, 200, { result: `Компьютер будет перезагружен через ${delay} секунд.`, success: true });
+      return;
+    }
+
+    // Автоматизация браузера — клик
+    if (pathname === '/api/browser/click' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      // Пытаемся использовать puppeteer если установлен
+      try {
+        const puppeteer = require('puppeteer');
+        const browser = await puppeteer.connect({ browserURL: 'http://localhost:9222' });
+        const pages = await browser.pages();
+        const page = pages[pages.length - 1];
+        
+        if (body.url) {
+          await page.goto(body.url);
+        }
+        
+        // Пробуем как CSS-селектор, потом как текст
+        try {
+          await page.click(body.selector);
+        } catch {
+          // Ищем по тексту
+          const clicked = await page.evaluate((text) => {
+            const elements = [...document.querySelectorAll('a, button, input, [role="button"]')];
+            const el = elements.find(e => e.textContent?.includes(text) || e.value?.includes(text));
+            if (el) el.click();
+            return !!el;
+          }, body.selector);
+          
+          if (!clicked) {
+            sendJson(res, 200, { result: `Элемент "${body.selector}" не найден на странице.` });
+            return;
+          }
+        }
+        
+        sendJson(res, 200, { result: `Клик выполнен: ${body.selector}` });
+      } catch (e) {
+        sendJson(res, 200, { 
+          result: `Puppeteer не доступен. Установите: npm install puppeteer\nИ запустите Chrome с: chrome --remote-debugging-port=9222\n\nОшибка: ${e.message}` 
+        });
+      }
+      return;
+    }
+
+    // Автоматизация браузера — ввод текста
+    if (pathname === '/api/browser/type' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.selector || body.text === undefined) {
+        sendJson(res, 400, { error: 'Не указаны selector или text' });
+        return;
+      }
+      
+      try {
+        const puppeteer = require('puppeteer');
+        const browser = await puppeteer.connect({ browserURL: 'http://localhost:9222' });
+        const pages = await browser.pages();
+        const page = pages[pages.length - 1];
+        
+        await page.type(body.selector, body.text);
+        sendJson(res, 200, { result: `Текст введён в ${body.selector}: "${body.text}"` });
+      } catch (e) {
+        sendJson(res, 200, { 
+          result: `Puppeteer не доступен. Установите: npm install puppeteer\nИ запустите Chrome с: chrome --remote-debugging-port=9222\n\nОшибка: ${e.message}` 
+        });
+      }
+      return;
+    }
+
+    // Компиляция и выполнение кода
+    if (pathname === '/api/compile' && req.method === 'POST') {
+      const body = await parseBody(req);
+      
+      if (!body.code || !body.language) {
+        sendJson(res, 400, { error: 'Не указан код или язык' });
+        return;
+      }
+
+      const tempDir = path.join(os.tmpdir(), 'mirage-coder-' + Date.now());
+      fs.mkdirSync(tempDir, { recursive: true });
+
+      try {
+        let result = '';
+        let success = true;
+        const lang = body.language.toLowerCase();
+
+        if (lang === 'javascript' || lang === 'js') {
+          const tempFile = path.join(tempDir, 'script.js');
+          fs.writeFileSync(tempFile, body.code);
+          const execResult = await runCommand(`node "${tempFile}"`, 30000);
+          result = execResult.output;
+          success = execResult.success;
+        } 
+        else if (lang === 'python' || lang === 'py') {
+          const tempFile = path.join(tempDir, 'script.py');
+          fs.writeFileSync(tempFile, body.code);
+          // Пробуем разные команды для Python
+          let execResult = await runCommand(`python "${tempFile}"`, 30000);
+          if (!execResult.success) {
+            execResult = await runCommand(`python3 "${tempFile}"`, 30000);
+          }
+          if (!execResult.success) {
+            result = '❌ Python не установлен или не найден в PATH.\n\nУстановите Python:\n- Windows: winget install Python.Python.3.12\n- Linux: sudo apt-get install python3\n- macOS: brew install python\n\nИли скачайте с https://www.python.org/downloads/';
+            success = false;
+          } else {
+            result = execResult.output;
+            success = execResult.success;
+          }
+        }
+        else if (lang === 'c++' || lang === 'cpp' || lang === 'c') {
+          const tempFile = path.join(tempDir, 'program.cpp');
+          const exeFile = path.join(tempDir, 'program.exe');
+          fs.writeFileSync(tempFile, body.code);
+          
+          // Компиляция с увеличенным таймаутом
+          const compileResult = await runCommand(`g++ "${tempFile}" -o "${exeFile}"`, 60000);
+          if (!compileResult.success) {
+            if (compileResult.output.includes('not recognized') || compileResult.output.includes('not found') || compileResult.output.includes('command not found')) {
+              result = '❌ GCC/G++ не установлен или не найден в PATH.\n\nУстановите GCC:\n- Windows: winget install MSYS2.MSYS2\n- Linux: sudo apt-get install build-essential\n- macOS: xcode-select --install';
+            } else {
+              result = 'Ошибка компиляции:\n' + compileResult.output;
+            }
+            success = false;
+          } else {
+            const execResult = await runCommand(`"${exeFile}"`, 30000);
+            result = execResult.output;
+            success = execResult.success;
+          }
+        }
+        else if (lang === 'c#' || lang === 'csharp') {
+          const tempFile = path.join(tempDir, 'Program.cs');
+          const exeFile = path.join(tempDir, 'program.exe');
+          fs.writeFileSync(tempFile, body.code);
+          
+          // Пробуем разные компиляторы C#
+          let compileResult = await runCommand(`csc "${tempFile}" /out:"${exeFile}"`, 60000);
+          if (!compileResult.success) {
+            compileResult = await runCommand(`mcs "${tempFile}" /out:"${exeFile}"`, 60000);
+          }
+          
+          if (!compileResult.success) {
+            if (compileResult.output.includes('not recognized') || compileResult.output.includes('not found') || compileResult.output.includes('command not found')) {
+              result = '❌ C# компилятор (csc/mcs) не установлен или не найден в PATH.\n\nУстановите C#:\n- Windows: winget install Microsoft.DotNet.SDK.8\n- Linux: sudo apt-get install mono-complete\n- macOS: brew install mono';
+            } else {
+              result = 'Ошибка компиляции:\n' + compileResult.output;
+            }
+            success = false;
+          } else {
+            const execResult = await runCommand(`"${exeFile}"`, 30000);
+            result = execResult.output;
+            success = execResult.success;
+          }
+        }
+        else if (lang === 'java') {
+          const tempFile = path.join(tempDir, 'Main.java');
+          fs.writeFileSync(tempFile, body.code);
+          
+          const compileResult = await runCommand(`javac "${tempFile}"`, 60000);
+          if (!compileResult.success) {
+            if (compileResult.output.includes('not recognized') || compileResult.output.includes('not found') || compileResult.output.includes('command not found')) {
+              result = '❌ Java JDK не установлен или не найден в PATH.\n\nУстановите Java JDK:\n- Windows: winget install EclipseAdoptium.Temurin.21.JDK\n- Linux: sudo apt-get install default-jdk\n- macOS: brew install openjdk\n\nИли скачайте с https://adoptium.net/';
+            } else {
+              result = 'Ошибка компиляции:\n' + compileResult.output;
+            }
+            success = false;
+          } else {
+            const execResult = await runCommand(`java -cp "${tempDir}" Main`, 30000);
+            result = execResult.output;
+            success = execResult.success;
+          }
+        }
+        else if (lang === 'go') {
+          const tempFile = path.join(tempDir, 'main.go');
+          fs.writeFileSync(tempFile, body.code);
+          const execResult = await runCommand(`go run "${tempFile}"`, 60000);
+          if (!execResult.success) {
+            if (execResult.output.includes('not recognized') || execResult.output.includes('not found') || execResult.output.includes('command not found')) {
+              result = '❌ Go не установлен или не найден в PATH.\n\nУстановите Go:\n- Windows: winget install GoLang.Go\n- Linux: sudo apt-get install golang\n- macOS: brew install go\n\nИли скачайте с https://go.dev/dl/';
+            } else {
+              result = 'Ошибка выполнения:\n' + execResult.output;
+            }
+            success = false;
+          } else {
+            result = execResult.output;
+            success = execResult.success;
+          }
+        }
+        else if (lang === 'rust' || lang === 'rs') {
+          const tempFile = path.join(tempDir, 'main.rs');
+          const exeFile = path.join(tempDir, 'main.exe');
+          fs.writeFileSync(tempFile, body.code);
+          
+          const compileResult = await runCommand(`rustc "${tempFile}" -o "${exeFile}"`, 60000);
+          if (!compileResult.success) {
+            if (compileResult.output.includes('not recognized') || compileResult.output.includes('not found') || compileResult.output.includes('command not found')) {
+              result = '❌ Rust не установлен или не найден в PATH.\n\nУстановите Rust:\n- Все платформы: curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh\n- Windows: winget install Rustlang.Rust\n\nИли скачайте с https://www.rust-lang.org/tools/install';
+            } else {
+              result = 'Ошибка компиляции:\n' + compileResult.output;
+            }
+            success = false;
+          } else {
+            const execResult = await runCommand(`"${exeFile}"`, 30000);
+            result = execResult.output;
+            success = execResult.success;
+          }
+        }
+        else {
+          result = `Язык ${body.language} не поддерживается. Установите компилятор и попробуйте снова.`;
+          success = false;
+        }
+
+        // Очистка временных файлов
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch (e) {}
+
+        sendJson(res, 200, { 
+          result: result || '(нет вывода)', 
+          success: success,
+          language: body.language
+        });
+      } catch (err) {
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch (e) {}
+        
+        sendJson(res, 500, { 
+          error: 'Ошибка выполнения: ' + err.message,
+          success: false
+        });
+      }
+      return;
+    }
+
+    // Работа с буфером обмена
+    if (pathname === '/api/clipboard/read' && req.method === 'GET') {
+      try {
+        const text = clipboardy.readSync();
+        sendJson(res, 200, { result: text || '(буфер обмена пуст)', success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка чтения буфера: ${err.message}` });
+      }
+      return;
+    }
+
+    if (pathname === '/api/clipboard/write' && req.method === 'POST') {
+      const body = await parseBody(req);
+      try {
+        clipboardy.writeSync(body.text || '');
+        sendJson(res, 200, { result: 'Текст скопирован в буфер обмена', success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка записи в буфер: ${err.message}` });
+      }
+      return;
+    }
+
+    // Долговременная память
+    if (pathname === '/api/memory/save' && req.method === 'POST') {
+      const body = await parseBody(req);
+      if (!body.key || body.value === undefined) {
+        sendJson(res, 400, { error: 'Не указаны key или value' });
+        return;
+      }
+      try {
+        const memory = loadMemory();
+        memory[body.key] = body.value;
+        saveMemory(memory);
+        sendJson(res, 200, { result: `Сохранено: ${body.key} = ${body.value}`, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка сохранения: ${err.message}` });
+      }
+      return;
+    }
+
+    if (pathname === '/api/memory/get' && req.method === 'POST') {
+      const body = await parseBody(req);
+      if (!body.key) {
+        sendJson(res, 400, { error: 'Не указан key' });
+        return;
+      }
+      try {
+        const memory = loadMemory();
+        const value = memory[body.key];
+        if (value !== undefined) {
+          sendJson(res, 200, { result: `${body.key} = ${value}`, success: true });
+        } else {
+          sendJson(res, 200, { result: `Ключ "${body.key}" не найден в памяти`, success: false });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка чтения: ${err.message}` });
+      }
+      return;
+    }
+
+    // Мониторинг системы
+    if (pathname === '/api/system/health' && req.method === 'GET') {
+      try {
+        const cpu = await si.cpu();
+        const mem = await si.mem();
+        const disk = await si.fsSize();
+        const currentLoad = await si.currentLoad();
+        
+        const result = `
+=== СОСТОЯНИЕ СИСТЕМЫ ===
+CPU: ${cpu.manufacturer} ${cpu.brand} (${cpu.cores} ядер)
+Загрузка CPU: ${currentLoad.currentLoad.toFixed(1)}%
+
+RAM:
+  Всего: ${(mem.total / 1024 / 1024 / 1024).toFixed(1)} GB
+  Свободно: ${(mem.available / 1024 / 1024 / 1024).toFixed(1)} GB
+  Используется: ${((mem.used / mem.total) * 100).toFixed(1)}%
+
+Диски:
+${disk.map(d => `  ${d.mount}: ${(d.size / 1024 / 1024 / 1024).toFixed(1)} GB всего, ${(d.available / 1024 / 1024 / 1024).toFixed(1)} GB свободно`).join('\n')}
+
+ОС: ${os.type()} ${os.release()}
+Uptime: ${(os.uptime() / 3600).toFixed(1)} часов
+========================
+        `.trim();
+        
+        sendJson(res, 200, { result, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка получения информации: ${err.message}` });
+      }
+      return;
+    }
+
+    // Проверка доступных компиляторов
+    if (pathname === '/api/system/compilers' && req.method === 'GET') {
+      try {
+        const compilers = [];
+        
+        // Проверка Python
+        try {
+          const pythonVersion = execSync('python --version 2>&1', { encoding: 'utf-8' }).trim();
+          compilers.push({ name: 'Python', version: pythonVersion, available: true });
+        } catch {
+          try {
+            const python3Version = execSync('python3 --version 2>&1', { encoding: 'utf-8' }).trim();
+            compilers.push({ name: 'Python', version: python3Version, available: true });
+          } catch {
+            compilers.push({ name: 'Python', version: 'не установлен', available: false });
+          }
+        }
+        
+        // Проверка Node.js
+        try {
+          const nodeVersion = execSync('node --version 2>&1', { encoding: 'utf-8' }).trim();
+          compilers.push({ name: 'Node.js', version: nodeVersion, available: true });
+        } catch {
+          compilers.push({ name: 'Node.js', version: 'не установлен', available: false });
+        }
+        
+        // Проверка GCC/G++
+        try {
+          const gccVersion = execSync('g++ --version 2>&1', { encoding: 'utf-8' }).split('\n')[0].trim();
+          compilers.push({ name: 'G++', version: gccVersion, available: true });
+        } catch {
+          compilers.push({ name: 'G++', version: 'не установлен', available: false });
+        }
+        
+        // Проверка Java
+        try {
+          const javaVersion = execSync('java -version 2>&1', { encoding: 'utf-8' }).split('\n')[0].trim();
+          compilers.push({ name: 'Java', version: javaVersion, available: true });
+        } catch {
+          compilers.push({ name: 'Java', version: 'не установлен', available: false });
+        }
+        
+        // Проверка Go
+        try {
+          const goVersion = execSync('go version 2>&1', { encoding: 'utf-8' }).trim();
+          compilers.push({ name: 'Go', version: goVersion, available: true });
+        } catch {
+          compilers.push({ name: 'Go', version: 'не установлен', available: false });
+        }
+        
+        // Проверка Rust
+        try {
+          const rustVersion = execSync('rustc --version 2>&1', { encoding: 'utf-8' }).trim();
+          compilers.push({ name: 'Rust', version: rustVersion, available: true });
+        } catch {
+          compilers.push({ name: 'Rust', version: 'не установлен', available: false });
+        }
+        
+        // Проверка C#
+        try {
+          const cscVersion = execSync('csc -version 2>&1', { encoding: 'utf-8' }).trim();
+          compilers.push({ name: 'C#', version: cscVersion, available: true });
+        } catch {
+          compilers.push({ name: 'C#', version: 'не установлен', available: false });
+        }
+        
+        const available = compilers.filter(c => c.available);
+        const unavailable = compilers.filter(c => !c.available);
+        
+        let result = '=== ДОСТУПНЫЕ КОМПИЛЯТОРЫ И ИНТЕРПРЕТАТОРЫ ===\n\n';
+        
+        if (available.length > 0) {
+          result += '✅ УСТАНОВЛЕНЫ:\n';
+          available.forEach(c => {
+            result += `  • ${c.name}: ${c.version}\n`;
+          });
+          result += '\n';
+        }
+        
+        if (unavailable.length > 0) {
+          result += '❌ НЕ УСТАНОВЛЕНЫ:\n';
+          unavailable.forEach(c => {
+            result += `  • ${c.name}\n`;
+          });
+          result += '\n';
+        }
+        
+        result += '===============================================\n';
+        result += 'Используй только установленные языки для написания кода!';
+        
+        sendJson(res, 200, { result, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка проверки компиляторов: ${err.message}` });
+      }
+      return;
+    }
+
+    // Чтение документов (PDF, DOCX)
+    if (pathname === '/api/document/read' && req.method === 'POST') {
+      const body = await parseBody(req);
+      if (!body.path) {
+        sendJson(res, 400, { error: 'Не указан путь к файлу' });
+        return;
+      }
+      
+      const filePath = path.resolve(WORKSPACE, body.path);
+      
+      if (!fs.existsSync(filePath)) {
+        sendJson(res, 404, { error: `Файл не найден: ${filePath}` });
+        return;
+      }
+      
+      try {
+        const ext = path.extname(filePath).toLowerCase();
+        let text = '';
+        
+        if (ext === '.pdf') {
+          const dataBuffer = fs.readFileSync(filePath);
+          const data = await pdfParse(dataBuffer);
+          text = data.text;
+        } else if (ext === '.docx') {
+          const result = await mammoth.extractRawText({ path: filePath });
+          text = result.value;
+        } else {
+          text = fs.readFileSync(filePath, 'utf-8');
+        }
+        
+        // Ограничиваем размер текста
+        if (text.length > 50000) {
+          text = text.slice(0, 50000) + '\n\n[Текст обрезан из-за большого размера]';
+        }
+        
+        sendJson(res, 200, { result: text, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка чтения документа: ${err.message}` });
+      }
+      return;
+    }
+
+    // Очистка рабочей папки
+    if (pathname === '/api/workspace/clean' && req.method === 'POST') {
+      try {
+        const files = fs.readdirSync(WORKSPACE);
+        let deleted = 0;
+        
+        for (const file of files) {
+          const filePath = path.join(WORKSPACE, file);
+          const stat = fs.statSync(filePath);
+          
+          if (stat.isFile()) {
+            fs.unlinkSync(filePath);
+            deleted++;
+          } else if (stat.isDirectory()) {
+            fs.rmSync(filePath, { recursive: true, force: true });
+            deleted++;
+          }
+        }
+        
+        sendJson(res, 200, { result: `Удалено ${deleted} файлов/папок из workspace`, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка очистки: ${err.message}` });
+      }
+      return;
+    }
+
+    // 404
+    sendJson(res, 404, { error: `Unknown endpoint: ${pathname}` });
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+// Запуск сервера
+const server = http.createServer(handleRequest);
+
+server.listen(PORT, HOST, () => {
+  console.log('');
+  console.log('================================================');
+  console.log('     Mirage AI - Local Server');
+  console.log('------------------------------------------------');
+  console.log('  [OK] Server running: http://' + HOST + ':' + PORT);
+  console.log('');
+  console.log('  Available tools:');
+  console.log('  - File system (read/write/list)');
+  console.log('  - Execute commands');
+  console.log('  - Shutdown / restart PC');
+  console.log('  - System information');
+  console.log('  - Browser automation (puppeteer)');
+  console.log('');
+  console.log('  For browser automation:');
+  console.log('  1. npm install puppeteer');
+  console.log('  2. chrome --remote-debugging-port=9222');
+  console.log('');
+  console.log('  Press Ctrl+C to stop');
+  console.log('================================================');
+  console.log('');
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error('[ERROR] Port ' + PORT + ' is already in use. Close another server or change PORT.');
+  } else {
+    console.error('[ERROR] Server error:', err);
+  }
+  process.exit(1);
+});
