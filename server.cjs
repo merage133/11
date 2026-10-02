@@ -706,8 +706,13 @@ async function handleRequest(req, res) {
           if (!execResult.success) {
             execResult = await runCommand(`python3 "${tempFile}"`, 30000);
           }
-          result = execResult.output;
-          success = execResult.success;
+          if (!execResult.success) {
+            result = '❌ Python не установлен или не найден в PATH.\n\nУстановите Python:\n- Windows: winget install Python.Python.3.12\n- Linux: sudo apt-get install python3\n- macOS: brew install python\n\nИли скачайте с https://www.python.org/downloads/';
+            success = false;
+          } else {
+            result = execResult.output;
+            success = execResult.success;
+          }
         }
         else if (lang === 'c++' || lang === 'cpp' || lang === 'c') {
           const tempFile = path.join(tempDir, 'program.cpp');
@@ -717,7 +722,11 @@ async function handleRequest(req, res) {
           // Компиляция с увеличенным таймаутом
           const compileResult = await runCommand(`g++ "${tempFile}" -o "${exeFile}"`, 60000);
           if (!compileResult.success) {
-            result = 'Ошибка компиляции:\n' + compileResult.output;
+            if (compileResult.output.includes('not recognized') || compileResult.output.includes('not found') || compileResult.output.includes('command not found')) {
+              result = '❌ GCC/G++ не установлен или не найден в PATH.\n\nУстановите GCC:\n- Windows: winget install MSYS2.MSYS2\n- Linux: sudo apt-get install build-essential\n- macOS: xcode-select --install';
+            } else {
+              result = 'Ошибка компиляции:\n' + compileResult.output;
+            }
             success = false;
           } else {
             const execResult = await runCommand(`"${exeFile}"`, 30000);
@@ -737,7 +746,11 @@ async function handleRequest(req, res) {
           }
           
           if (!compileResult.success) {
-            result = 'Ошибка компиляции:\n' + compileResult.output;
+            if (compileResult.output.includes('not recognized') || compileResult.output.includes('not found') || compileResult.output.includes('command not found')) {
+              result = '❌ C# компилятор (csc/mcs) не установлен или не найден в PATH.\n\nУстановите C#:\n- Windows: winget install Microsoft.DotNet.SDK.8\n- Linux: sudo apt-get install mono-complete\n- macOS: brew install mono';
+            } else {
+              result = 'Ошибка компиляции:\n' + compileResult.output;
+            }
             success = false;
           } else {
             const execResult = await runCommand(`"${exeFile}"`, 30000);
@@ -751,7 +764,11 @@ async function handleRequest(req, res) {
           
           const compileResult = await runCommand(`javac "${tempFile}"`, 60000);
           if (!compileResult.success) {
-            result = 'Ошибка компиляции:\n' + compileResult.output;
+            if (compileResult.output.includes('not recognized') || compileResult.output.includes('not found') || compileResult.output.includes('command not found')) {
+              result = '❌ Java JDK не установлен или не найден в PATH.\n\nУстановите Java JDK:\n- Windows: winget install EclipseAdoptium.Temurin.21.JDK\n- Linux: sudo apt-get install default-jdk\n- macOS: brew install openjdk\n\nИли скачайте с https://adoptium.net/';
+            } else {
+              result = 'Ошибка компиляции:\n' + compileResult.output;
+            }
             success = false;
           } else {
             const execResult = await runCommand(`java -cp "${tempDir}" Main`, 30000);
@@ -763,8 +780,17 @@ async function handleRequest(req, res) {
           const tempFile = path.join(tempDir, 'main.go');
           fs.writeFileSync(tempFile, body.code);
           const execResult = await runCommand(`go run "${tempFile}"`, 60000);
-          result = execResult.output;
-          success = execResult.success;
+          if (!execResult.success) {
+            if (execResult.output.includes('not recognized') || execResult.output.includes('not found') || execResult.output.includes('command not found')) {
+              result = '❌ Go не установлен или не найден в PATH.\n\nУстановите Go:\n- Windows: winget install GoLang.Go\n- Linux: sudo apt-get install golang\n- macOS: brew install go\n\nИли скачайте с https://go.dev/dl/';
+            } else {
+              result = 'Ошибка выполнения:\n' + execResult.output;
+            }
+            success = false;
+          } else {
+            result = execResult.output;
+            success = execResult.success;
+          }
         }
         else if (lang === 'rust' || lang === 'rs') {
           const tempFile = path.join(tempDir, 'main.rs');
@@ -773,7 +799,11 @@ async function handleRequest(req, res) {
           
           const compileResult = await runCommand(`rustc "${tempFile}" -o "${exeFile}"`, 60000);
           if (!compileResult.success) {
-            result = 'Ошибка компиляции:\n' + compileResult.output;
+            if (compileResult.output.includes('not recognized') || compileResult.output.includes('not found') || compileResult.output.includes('command not found')) {
+              result = '❌ Rust не установлен или не найден в PATH.\n\nУстановите Rust:\n- Все платформы: curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh\n- Windows: winget install Rustlang.Rust\n\nИли скачайте с https://www.rust-lang.org/tools/install';
+            } else {
+              result = 'Ошибка компиляции:\n' + compileResult.output;
+            }
             success = false;
           } else {
             const execResult = await runCommand(`"${exeFile}"`, 30000);

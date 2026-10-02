@@ -95,29 +95,27 @@ export const CoderView: React.FC<CoderViewProps> = ({
       });
 
       const data = await response.json();
-      setExecutionResult(data.result || data.error);
-
-      // Автоматическое исправление если включено и есть ошибка
-      if (autoFixMode && data.error && fixAttempts < 3) {
-        setFixAttempts(prev => prev + 1);
+      
+      // Показываем результат или ошибку
+      if (data.success) {
+        setExecutionResult(data.result || '(нет вывода)');
+      } else {
+        setExecutionResult(data.result || data.error || 'Неизвестная ошибка');
         
-        // Добавляем сообщение об ошибке
-        const errorMsg: Message = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: `⚠️ Ошибка при выполнении:\n\`\`\`\n${data.error}\n\`\`\`\n\nИсправляю код...`,
-          timestamp: new Date(),
-        };
-        
-        // Отправляем запрос на исправление
-        const fixRequest = `Код содержит ошибку:\n\`\`\`${lang}\n${code}\n\`\`\`\n\nОшибка:\n${data.error}\n\nИсправь код и напиши полностью исправленную версию.`;
-        
-        setTimeout(() => {
-          onSendMessage(fixRequest);
-        }, 1000);
+        // Автоматическое исправление если включено и есть ошибка
+        if (autoFixMode && fixAttempts < 3) {
+          setFixAttempts(prev => prev + 1);
+          
+          // Отправляем запрос на исправление
+          const fixRequest = `Код содержит ошибку:\n\`\`\`${lang}\n${code}\n\`\`\`\n\nОшибка:\n${data.result || data.error}\n\nИсправь код и напиши полностью исправленную версию.`;
+          
+          setTimeout(() => {
+            onSendMessage(fixRequest);
+          }, 1000);
+        }
       }
     } catch (error) {
-      setExecutionResult(`Ошибка подключения к серверу: ${error}`);
+      setExecutionResult(`❌ Ошибка подключения к серверу.\n\nУбедитесь что сервер запущен:\nnode server.cjs\n\nОшибка: ${error}`);
     } finally {
       setIsExecuting(false);
     }
@@ -395,7 +393,7 @@ export const CoderView: React.FC<CoderViewProps> = ({
                 <div className="flex items-center gap-2">
                   {isExecuting ? (
                     <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                  ) : executionResult && !executionResult.includes('Ошибка') ? (
+                  ) : executionResult && !executionResult.startsWith('❌') ? (
                     <CheckCircle className="w-4 h-4 text-green" />
                   ) : (
                     <AlertCircle className="w-4 h-4 text-red" />
@@ -444,10 +442,16 @@ export const CoderView: React.FC<CoderViewProps> = ({
                           <p className="text-sm text-text-muted">Компиляция и выполнение...</p>
                         </div>
                       </div>
-                    ) : (
-                      <pre className="text-sm text-text-primary font-mono whitespace-pre-wrap">
-                        {executionResult || 'Нажмите "Запуск" на блоке кода'}
+                    ) : executionResult ? (
+                      <pre className={`text-sm font-mono whitespace-pre-wrap ${
+                        executionResult.startsWith('❌') ? 'text-red' : 'text-text-primary'
+                      }`}>
+                        {executionResult}
                       </pre>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-center">
+                        <p className="text-sm text-text-muted">Нажмите "Запуск" на блоке кода</p>
+                      </div>
                     )}
                   </div>
                 )}
