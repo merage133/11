@@ -281,6 +281,99 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'read_clipboard',
+      description: 'Прочитать текст из буфера обмена пользователя. Используй когда пользователь просит проверить или перевести скопированный текст.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_clipboard',
+      description: 'Записать текст в буфер обмена пользователя.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Текст для копирования в буфер обмена' },
+        },
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'save_memory',
+      description: 'Сохранить важную информацию о пользователе в долговременную память. Используй когда пользователь сообщает личные данные, предпочтения или важные факты.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Ключ для сохранения (например: user_name, user_preference, project_name)' },
+          value: { type: 'string', description: 'Значение для сохранения' },
+        },
+        required: ['key', 'value'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_memory',
+      description: 'Получить сохранённую информацию из долговременной памяти.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Ключ для получения (например: user_name, user_preference)' },
+        },
+        required: ['key'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_system_health',
+      description: 'Получить информацию о состоянии системы: загрузка CPU, RAM, свободное место на диске. Используй перед запуском тяжёлых задач.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_document',
+      description: 'Прочитать текст из PDF или DOCX файла. Используй когда пользователь просит проанализировать документ.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Путь к файлу PDF или DOCX в рабочей папке ./ai_workspace' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'clean_workspace',
+      description: 'Очистить рабочую папку ./ai_workspace от всех файлов. Используй когда пользователь просит освободить место.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
 ];
 
 // Локальный сервер
@@ -544,6 +637,94 @@ export async function executeTool(
               query: parsedArgs.query, 
               top_k: parseInt(parsedArgs.top_k) || 3 
             }),
+          });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'read_clipboard': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/clipboard/read`);
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'write_clipboard': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/clipboard/write`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: parsedArgs.text }),
+          });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'save_memory': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/memory/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: parsedArgs.key, value: parsedArgs.value }),
+          });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'get_memory': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/memory/get`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: parsedArgs.key }),
+          });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'get_system_health': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/system/health`);
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'read_document': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/document/read`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: parsedArgs.path }),
+          });
+          const data = await res.json();
+          return { name, content: data.result || data.error, success: res.ok };
+        }
+        return { name, content: 'Сервер не запущен. Запустите: node server.cjs', success: false };
+      }
+
+      case 'clean_workspace': {
+        const hasServer = await serverAvailable();
+        if (hasServer) {
+          const res = await fetch(`${SERVER_URL}/api/workspace/clean`, {
+            method: 'POST',
           });
           const data = await res.json();
           return { name, content: data.result || data.error, success: res.ok };

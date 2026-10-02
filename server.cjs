@@ -18,9 +18,39 @@ const os = require('os');
 const { exec, execSync } = require('child_process');
 const WebSocket = require('ws');
 const duckDuckScrape = require('duck-duck-scrape');
+const clipboardy = require('clipboardy');
+const si = require('systeminformation');
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
 
 const PORT = 3001;
 const HOST = '127.0.0.1'; // Только локальный доступ
+
+// Песочница для всех файлов и команд
+const WORKSPACE = path.join(__dirname, 'ai_workspace');
+if (!fs.existsSync(WORKSPACE)) {
+  fs.mkdirSync(WORKSPACE, { recursive: true });
+}
+
+// Файл для долговременной памяти
+const MEMORY_FILE = path.join(__dirname, 'memory.json');
+if (!fs.existsSync(MEMORY_FILE)) {
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify({}, null, 2));
+}
+
+// Функция загрузки памяти
+function loadMemory() {
+  try {
+    return JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+// Функция сохранения памяти
+function saveMemory(memory) {
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+}
 
 // WebSocket сервер для подтверждения опасных действий
 const wss = new WebSocket.Server({ port: 3002 });
@@ -779,7 +809,20 @@ async function handleRequest(req, res) {
     // Чтение файла
     if (pathname === '/api/file/read' && req.method === 'POST') {
       const body = await parseBody(req);
-      const filePath = safePath(body.path);
+      
+      if (!body.path) {
+        sendJson(res, 400, { error: 'Не указан путь файла' });
+        return;
+      }
+      
+      // Чтение только из песочницы
+      const filePath = path.resolve(WORKSPACE, body.path);
+      
+      // Проверка что путь внутри песочницы
+      if (!filePath.startsWith(WORKSPACE)) {
+        sendJson(res, 403, { error: 'Доступ запрещён. Все файлы должны быть в ./ai_workspace' });
+        return;
+      }
       
       if (!fs.existsSync(filePath)) {
         sendJson(res, 404, { error: `Файл не найден: ${filePath}` });
@@ -788,10 +831,10 @@ async function handleRequest(req, res) {
       
       const stat = fs.statSync(filePath);
       if (stat.size > 1024 * 1024) { // 1 MB limit
-        sendJson(res, 200, { result: `[Файл слишком большой: ${(stat.size / 1024 / 1024).toFixed(1)} MB. Прочитаны первые 100 KB]\n\n${fs.readFileSync(filePath, 'utf-8').slice(0, 100000)}` });
+        sendJson(res, 200, { result: `[Файл слишком большой: ${(stat.size / 1024 / 1024).toFixed(1)} MB. Прочитаны первые 100 KB]\n\n${fs.readFileSync(filePath, 'utf-8').slice(0, 100000)}`, success: true });
       } else {
         const content = fs.readFileSync(filePath, 'utf-8');
-        sendJson(res, 200, { result: content });
+        sendJson(res, 200, { result: content, success: true });
       }
       return;
     }
@@ -805,7 +848,14 @@ async function handleRequest(req, res) {
         return;
       }
       
-      const filePath = safePath(body.path);
+      // Все файлы создаются ТОЛЬКО в песочнице
+      const filePath = path.resolve(WORKSPACE, body.path);
+      
+      // Проверка что путь внутри песочницы
+      if (!filePath.startsWith(WORKSPACE)) {
+        sendJson(res, 403, { error: 'Доступ запрещён. Все файлы должны быть в ./ai_workspace' });
+        return;
+      }
       
       try {
         // Создаём директорию если не существует
@@ -815,22 +865,60 @@ async function handleRequest(req, res) {
         }
         
         fs.writeFileSync(filePath, body.content || '', 'utf-8');
-        sendJson(res, 200, { result: `Файл записан: ${filePath} (${(body.content || '').length} символов)` });
+        sendJson(res, 200, { result: `Файл записан: ${filePath} (${(body.content || '').length} символов)`, success: true });
       } catch (err) {
         sendJson(res, 500, { error: `Ошибка записи файла: ${err.message}` });
       }
       return;
     }
 
-    // Выполнение команды
+    // Выполнение команды (с песочницей и таймаутом)
     if (pathname === '/api/command' && req.method === 'POST') {
       const body = await parseBody(req);
-      const result = await runCommand(body.command, 60000);
-      sendJson(res, result.success ? 200 : 200, {
-        result: result.output || '(нет вывода)',
-        success: result.success,
+      
+      if (!body.command) {
+        sendJson(res, 400, { error: 'Не указана команда' });
+        return;
+      }
+      
+      // Ограничиваем выполнение 30 секундами
+      return new Promise((resolve) => {
+        const child = exec(body.command, { 
+          cwd: WORKSPACE, 
+          timeout: 30000,
+          maxBuffer: 1024 * 1024 * 5
+        }, (error, stdout, stderr) => {
+          const exitCode = error ? (error.code || 1) : 0;
+          const isFailure = exitCode !== 0 || (stderr && stderr.trim().length > 0);
+          
+          const resultReport = `
+=== ОТЧЕТ О ВЫПОЛНЕНИИ КОМАНДЫ ===
+Команда: ${body.command}
+Рабочая папка: ${WORKSPACE}
+Статус: ${isFailure ? '❌ ОШИБКА' : '✅ УСПЕХ'}
+Exit Code: ${exitCode}
+
+--- STDOUT (Вывод программы) ---
+${(stdout || '').trim() || '(пусто)'}
+
+--- STDERR (Ошибки) ---
+${(stderr || '').trim() || '(пусто)'}
+
+ИНСТРУКЦИЯ ДЛЯ AI: 
+Если статус 'ОШИБКА', ты ОБЯЗАН проанализировать раздел STDERR, исправить код с помощью write_file и запустить команду снова. Не отвечай пользователю, пока не исправишь ошибку (максимум 3 попытки).
+================================
+          `.trim();
+          
+          resolve();
+          sendJson(res, 200, {
+            result: resultReport,
+            success: !isFailure,
+            exitCode,
+            stdout: stdout || '',
+            stderr: stderr || ''
+          });
+        });
       });
-      return;
     }
 
     // Выключение ПК (требует подтверждения)
@@ -1121,6 +1209,167 @@ async function handleRequest(req, res) {
           error: 'Ошибка выполнения: ' + err.message,
           success: false
         });
+      }
+      return;
+    }
+
+    // Работа с буфером обмена
+    if (pathname === '/api/clipboard/read' && req.method === 'GET') {
+      try {
+        const text = clipboardy.readSync();
+        sendJson(res, 200, { result: text || '(буфер обмена пуст)', success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка чтения буфера: ${err.message}` });
+      }
+      return;
+    }
+
+    if (pathname === '/api/clipboard/write' && req.method === 'POST') {
+      const body = await parseBody(req);
+      try {
+        clipboardy.writeSync(body.text || '');
+        sendJson(res, 200, { result: 'Текст скопирован в буфер обмена', success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка записи в буфер: ${err.message}` });
+      }
+      return;
+    }
+
+    // Долговременная память
+    if (pathname === '/api/memory/save' && req.method === 'POST') {
+      const body = await parseBody(req);
+      if (!body.key || body.value === undefined) {
+        sendJson(res, 400, { error: 'Не указаны key или value' });
+        return;
+      }
+      try {
+        const memory = loadMemory();
+        memory[body.key] = body.value;
+        saveMemory(memory);
+        sendJson(res, 200, { result: `Сохранено: ${body.key} = ${body.value}`, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка сохранения: ${err.message}` });
+      }
+      return;
+    }
+
+    if (pathname === '/api/memory/get' && req.method === 'POST') {
+      const body = await parseBody(req);
+      if (!body.key) {
+        sendJson(res, 400, { error: 'Не указан key' });
+        return;
+      }
+      try {
+        const memory = loadMemory();
+        const value = memory[body.key];
+        if (value !== undefined) {
+          sendJson(res, 200, { result: `${body.key} = ${value}`, success: true });
+        } else {
+          sendJson(res, 200, { result: `Ключ "${body.key}" не найден в памяти`, success: false });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка чтения: ${err.message}` });
+      }
+      return;
+    }
+
+    // Мониторинг системы
+    if (pathname === '/api/system/health' && req.method === 'GET') {
+      try {
+        const cpu = await si.cpu();
+        const mem = await si.mem();
+        const disk = await si.fsSize();
+        const currentLoad = await si.currentLoad();
+        
+        const result = `
+=== СОСТОЯНИЕ СИСТЕМЫ ===
+CPU: ${cpu.manufacturer} ${cpu.brand} (${cpu.cores} ядер)
+Загрузка CPU: ${currentLoad.currentLoad.toFixed(1)}%
+
+RAM:
+  Всего: ${(mem.total / 1024 / 1024 / 1024).toFixed(1)} GB
+  Свободно: ${(mem.available / 1024 / 1024 / 1024).toFixed(1)} GB
+  Используется: ${((mem.used / mem.total) * 100).toFixed(1)}%
+
+Диски:
+${disk.map(d => `  ${d.mount}: ${(d.size / 1024 / 1024 / 1024).toFixed(1)} GB всего, ${(d.available / 1024 / 1024 / 1024).toFixed(1)} GB свободно`).join('\n')}
+
+ОС: ${os.type()} ${os.release()}
+Uptime: ${(os.uptime() / 3600).toFixed(1)} часов
+========================
+        `.trim();
+        
+        sendJson(res, 200, { result, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка получения информации: ${err.message}` });
+      }
+      return;
+    }
+
+    // Чтение документов (PDF, DOCX)
+    if (pathname === '/api/document/read' && req.method === 'POST') {
+      const body = await parseBody(req);
+      if (!body.path) {
+        sendJson(res, 400, { error: 'Не указан путь к файлу' });
+        return;
+      }
+      
+      const filePath = path.resolve(WORKSPACE, body.path);
+      
+      if (!fs.existsSync(filePath)) {
+        sendJson(res, 404, { error: `Файл не найден: ${filePath}` });
+        return;
+      }
+      
+      try {
+        const ext = path.extname(filePath).toLowerCase();
+        let text = '';
+        
+        if (ext === '.pdf') {
+          const dataBuffer = fs.readFileSync(filePath);
+          const data = await pdfParse(dataBuffer);
+          text = data.text;
+        } else if (ext === '.docx') {
+          const result = await mammoth.extractRawText({ path: filePath });
+          text = result.value;
+        } else {
+          text = fs.readFileSync(filePath, 'utf-8');
+        }
+        
+        // Ограничиваем размер текста
+        if (text.length > 50000) {
+          text = text.slice(0, 50000) + '\n\n[Текст обрезан из-за большого размера]';
+        }
+        
+        sendJson(res, 200, { result: text, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка чтения документа: ${err.message}` });
+      }
+      return;
+    }
+
+    // Очистка рабочей папки
+    if (pathname === '/api/workspace/clean' && req.method === 'POST') {
+      try {
+        const files = fs.readdirSync(WORKSPACE);
+        let deleted = 0;
+        
+        for (const file of files) {
+          const filePath = path.join(WORKSPACE, file);
+          const stat = fs.statSync(filePath);
+          
+          if (stat.isFile()) {
+            fs.unlinkSync(filePath);
+            deleted++;
+          } else if (stat.isDirectory()) {
+            fs.rmSync(filePath, { recursive: true, force: true });
+            deleted++;
+          }
+        }
+        
+        sendJson(res, 200, { result: `Удалено ${deleted} файлов/папок из workspace`, success: true });
+      } catch (err) {
+        sendJson(res, 500, { error: `Ошибка очистки: ${err.message}` });
       }
       return;
     }

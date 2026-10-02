@@ -687,6 +687,7 @@ export default function App() {
           attachedFileIds={attachedFileIds}
           onAttachFile={() => setShowFiles(true)}
           onScreenshot={handleScreenshot}
+          statusText={statusText}
         />
       </div>
 

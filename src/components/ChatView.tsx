@@ -15,6 +15,7 @@ interface ChatViewProps {
   attachedFileIds: string[];
   onAttachFile: () => void;
   onScreenshot: (base64: string) => void;
+  statusText?: string;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -26,6 +27,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   attachedFileIds,
   onAttachFile,
   onScreenshot,
+  statusText,
 }) => {
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -274,7 +276,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       <div className="w-2 h-2 bg-accent rounded-full animate-pulse-dot" style={{ animationDelay: '0.3s' }} />
                       <div className="w-2 h-2 bg-accent rounded-full animate-pulse-dot" style={{ animationDelay: '0.6s' }} />
                     </div>
-                    <span className="text-xs text-text-muted">Думаю...</span>
+                    <span className="text-xs text-text-muted">{statusText || 'Думаю...'}</span>
                   </div>
                 </div>
               </div>
